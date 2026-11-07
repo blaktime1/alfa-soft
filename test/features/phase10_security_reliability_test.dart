@@ -1,16 +1,13 @@
-import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:alfa_soft/data/local/database_service.dart';
 import 'package:alfa_soft/data/repositories/accounting_repository.dart';
 import 'package:alfa_soft/data/repositories/pos_repository.dart';
-import 'package:alfa_soft/data/repositories/catalog_repository.dart';
 
 void main() {
   group('Phase 10: Security, Reliability, Stress Testing & QA Hardening', () {
     late DatabaseService db;
     late AccountingRepository accountingRepo;
     late PosRepository posRepo;
-    late CatalogRepository catalogRepo;
 
     const companyId = 'sec-comp-1';
     const branchId = 'sec-br-1';
@@ -21,7 +18,6 @@ void main() {
       db = DatabaseService.inMemory();
       accountingRepo = AccountingRepository(db);
       posRepo = PosRepository(db);
-      catalogRepo = CatalogRepository(db);
 
       // Seed organization
       db.execute(
