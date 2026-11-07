@@ -15,6 +15,7 @@ import '../reports/reports_screen.dart';
 import '../sync/sync_screen.dart';
 import '../migration/migration_screen.dart';
 import '../licensing/licensing_screen.dart';
+import '../enterprise/enterprise_screen.dart';
 
 enum ShellNavSection {
   dashboard,
@@ -22,6 +23,7 @@ enum ShellNavSection {
   inventory,
   purchases,
   accounting,
+  enterprise,
   reports,
   sync,
   customers,
@@ -135,6 +137,10 @@ class _MainShellState extends ConsumerState<MainShell> {
               NavigationRailDestination(
                 icon: Icon(Icons.account_balance_rounded),
                 label: Text('المحاسبة والقيود'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.business_center_rounded),
+                label: Text('الجناح المؤسسي والرواتب'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.print_rounded),
@@ -272,6 +278,8 @@ class _MainShellState extends ConsumerState<MainShell> {
         return const PurchasesScreen();
       case ShellNavSection.accounting:
         return const AccountingScreen();
+      case ShellNavSection.enterprise:
+        return const EnterpriseScreen();
       case ShellNavSection.reports:
         return const ReportsScreen();
       case ShellNavSection.sync:
