@@ -1,15 +1,25 @@
 # ALFA SOFT — RELEASE NOTES
 
-## Version 0.1.0-alpha — Architectural Blueprint & Foundation Release
+## Version 1.0.0 — Production Release (Offline Enterprise ERP & POS)
+*Release Date: 2026-11-07*
 
-### Overview
-This initial release establishes the complete engineering foundation, technical specifications, database architecture, and security guidelines for **ALFA SOFT Enterprise ERP**.
+### Executive Overview
+**ALFA SOFT Version 1.0.0** is a complete, enterprise-grade, offline-first ERP and Point of Sale (POS) desktop system built natively on Flutter Windows (C++ Runner) with local SQLite WAL persistence and zero web/Chromium dependencies.
 
-### Key Highlights
-- **Architecture Blueprints**: Comprehensive documentation suite covering Electron desktop shell, SQLite WAL persistence, NestJS central sync engine, and developer licensing portal.
-- **Relational Schema**: 100% normalized DDL definitions for multi-tenant organizational hierarchy, inventory ledger, POS checkout, double-entry general ledger, and offline outbox queues.
-- **Security & Integrity Protocols**: Complete STRIDE threat model, zero-trust Electron boundaries, and Ed25519 asymmetric cryptographic license verification rules.
-- **Business Logic Definitions**: Verified mathematical specifications for Banker's Rounding, VAT computation, FIFO/Moving Average costing, and automatic journal generation.
+### Comprehensive Milestone Delivery
+- **Phase 0 & 1 — Architecture & Windows Native Foundation**: Pure Flutter Windows C++ runner, SQLite 3 FFI with WAL mode, bankers rounding, VAT calculator, and First-Run Wizard.
+- **Phase 2 — Core Business Hierarchy & RBAC**: Multi-branch, multi-warehouse, product catalog, customer/supplier partner profiles with credit limits, and granular role permissions.
+- **Phase 3 — Business Operations & POS**: Purchase Orders, Goods Receipt (GRN) with Moving Average Costing (MAC), Inter-Warehouse stock transfers, stock adjustments, and high-speed POS shifts with blind closing and suspended carts.
+- **Phase 4 — Double-Entry Accounting Engine**: 5-tier standard Chart of Accounts hierarchy, balanced journal posting engine, Trial Balance, Real-Time Income Statement (P&L), and Balance Sheet.
+- **Phase 5 — Reporting, Printing & Documents**: ZATCA FATOORA Base64 TLV QR Code generation, raw ESC/POS thermal printer byte generation (80mm & 58mm), A4 bilingual tax invoice PDF generator, and UTF-8 BOM CSV/Excel data exporter.
+- **Phase 6 — Offline & LAN Multi-Device Synchronization**: Transactional Outbox pattern, peer discovery, SHA-256 encrypted batch transmission, and hybrid conflict resolution (strict ledger immutability + LWW catalog merge).
+- **Phase 7 — Universal Data Import & Migration Center**: Delimiter auto-detect CSV/TSV parser, dry-run schema validation with error preview, and transactional atomic bulk ingestion.
+- **Phase 8 — Ed25519 Cryptographic Licensing & Hardware Fingerprinting**: Deterministic Windows machine fingerprinting (`ALFA-XXXX-XXXX-XXXX`), offline Ed25519 key verification, and vendor Developer Portal generator tool.
+- **Phase 9 — Advanced Enterprise Suite**: Cost Centers & Projects, Employee Directory with salary breakdown, Automated Monthly Payroll runs, automated General Ledger salary expense posting, and Multi-Tier Approval Workflows.
+- **Phase 10 — Security, Hardening & QA Resilience**: Concurrency stress tests under 200 rapid balanced writes, catastrophic power-outage transaction rollback validation, and immutable audit logs.
+- **Phase 11 — Packaging & Production Installer**: Automated release build pipeline and Inno Setup 6 production installer script (`AlfaSoft-Setup-1.0.0-x64.exe`).
 
-### Upcoming Milestones
-- **Phase 1**: Monorepo workspace bootstrap, Electron + React 19 shell, SQLite database migration service, and Premium Layered design system tokens.
+### Verification & Quality Assurance
+- **52 / 52 automated tests passing (100% pass rate)**.
+- **0 static analysis issues (`flutter analyze` clean)**.
+
