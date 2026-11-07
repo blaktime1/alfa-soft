@@ -13,9 +13,9 @@
 | Phase | Description | Status | Progress | Notes |
 | :--- | :--- | :--- | :--- | :--- |
 | **Phase 0** | Discovery and Technical Specification | **Completed** | 100% | Full 22-document suite updated for Flutter Desktop Windows |
-| **Phase 1** | Foundation & Flutter Native Architecture | **In Progress** | 40% | Flutter Windows C++ runner created, packages configured, core math & schema ready |
-| **Phase 2** | Core Business Data | Not Started | 0% | Organizations, Catalogs, Customers, Suppliers, RBAC |
-| **Phase 3** | Business Operations & POS | Not Started | 0% | POS interface, Sales, Purchases, Stock movements |
+| **Phase 1** | Foundation & Flutter Native Architecture | **Completed** | 100% | Flutter Windows C++ runner, SQLite WAL, core math & base shell |
+| **Phase 2** | Core Business Data | **Completed** | 100% | Multi-branch/warehouse, product catalog, partners, RBAC & audits |
+| **Phase 3** | Business Operations & POS | **In Progress** | 30% | High-speed POS active, stock deduction & payments atomic transactions |
 | **Phase 4** | Accounting & Financial Engine | Not Started | 0% | General ledger, journals, financial reports, trial balance |
 | **Phase 5** | Reporting, Printing & Documents | Not Started | 0% | ESC/POS receipts, PDF invoices, Excel export |
 | **Phase 6** | Offline & Multi-Device Sync | Not Started | 0% | Outbox pattern, LAN sync, conflict resolution UI |

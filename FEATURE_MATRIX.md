@@ -16,9 +16,9 @@ Statuses:
 
 | Feature Code | Feature Description | Complexity | Phase | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ORG-01** | Multi-Company Profile Setup | High | Phase 2 | Analyzed | Company isolation, tax IDs, commercial registries |
-| **ORG-02** | Multi-Branch Architecture | Medium | Phase 2 | Analyzed | Branch-specific settings, sequences, permissions |
-| **ORG-03** | Multi-Warehouse Hierarchies | Medium | Phase 2 | Analyzed | Warehouse locations, bins, inter-warehouse links |
+| **ORG-01** | Multi-Company Profile Setup | High | Phase 2 | **Verified** | Company isolation, tax IDs, commercial registries |
+| **ORG-02** | Multi-Branch Architecture | Medium | Phase 2 | **Verified** | Branch-specific settings, sequences, permissions |
+| **ORG-03** | Multi-Warehouse Hierarchies | Medium | Phase 2 | **Verified** | Warehouse locations, bins, inter-warehouse links |
 | **ORG-04** | Fiscal Year & Accounting Periods | High | Phase 2 | Analyzed | Period locking, opening balances, closing routines |
 | **ORG-05** | Company-Specific Numbering Sequences | Medium | Phase 2 | Analyzed | Prefixes, padding, fiscal-year resets |
 
@@ -122,8 +122,8 @@ Statuses:
 
 | Feature Code | Feature Description | Complexity | Phase | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **SEC-01** | Role-Based Access Control (RBAC) | High | Phase 2 | Analyzed | Granular permission flags (Create, Read, Edit, Post) |
-| **SEC-02** | Immutable Audit Trail & Change Log | High | Phase 2 | Analyzed | Pre/post change JSON payloads, user & device stamping |
+| **SEC-01** | Role-Based Access Control (RBAC) | High | Phase 2 | **Verified** | Granular permission flags (Create, Read, Edit, Post) |
+| **SEC-02** | Immutable Audit Trail & Change Log | High | Phase 2 | **Verified** | Pre/post change JSON payloads, user & device stamping |
 | **SEC-03** | Ed25519 Cryptographic Licensing | Critical | Phase 8 | Analyzed | Asymmetric verification, hardware fingerprint binding |
 | **SEC-04** | Offline Challenge-Response Activation| High | Phase 8 | Analyzed | Air-gapped activation code generation and validation |
 | **SEC-05** | Developer Licensing Portal Web App | High | Phase 8 | Analyzed | Independent portal to generate, sign, and revoke seats |

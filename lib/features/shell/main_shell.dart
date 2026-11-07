@@ -4,6 +4,10 @@ import '../../core/providers/app_state_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../pos/pos_screen.dart';
+import '../inventory/products_screen.dart';
+import '../partners/partners_screen.dart';
+import '../organization/organization_screen.dart';
+import '../users/users_screen.dart';
 
 enum ShellNavSection {
   dashboard,
@@ -241,11 +245,7 @@ class _MainShellState extends ConsumerState<MainShell> {
       case ShellNavSection.pos:
         return const SizedBox.shrink(); // Handled in build
       case ShellNavSection.inventory:
-        return _PlaceholderSection(
-          title: 'المخزون والمستودعات',
-          icon: Icons.inventory_2_rounded,
-          description: 'بطاقات الأصناف، حركات الوارد والمنصرف، الجرد الفعلي، والتكلفة المتوسطة / FIFO',
-        );
+        return const ProductsScreen();
       case ShellNavSection.accounting:
         return _PlaceholderSection(
           title: 'المحاسبة العامة وشجرة الحسابات',
@@ -253,18 +253,60 @@ class _MainShellState extends ConsumerState<MainShell> {
           description: 'دليل الحسابات، قيود اليومية الآلية، موازين المراجعة، وقائمة الدخل',
         );
       case ShellNavSection.customers:
-        return _PlaceholderSection(
-          title: 'إدارة العملاء والموردين',
-          icon: Icons.people_alt_rounded,
-          description: 'سجلات العملاء، حدود الائتمان، كشوفات الحساب، ومتابعة المديونيات',
-        );
+        return const PartnersScreen();
       case ShellNavSection.settings:
-        return _PlaceholderSection(
-          title: 'إعدادات النظام والتراخيص',
-          icon: Icons.settings_rounded,
-          description: 'تراخيص Ed25519، إعدادات الطابعات الحرارية، والنسخ الاحتياطي المشفر',
-        );
+        return const _SettingsContainer();
     }
+  }
+}
+
+class _SettingsContainer extends StatefulWidget {
+  const _SettingsContainer();
+
+  @override
+  State<_SettingsContainer> createState() => _SettingsContainerState();
+}
+
+class _SettingsContainerState extends State<_SettingsContainer> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          color: Theme.of(context).colorScheme.surface,
+          child: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(icon: Icon(Icons.business_rounded), text: 'الهيكل التنظيمي والفروع'),
+              Tab(icon: Icon(Icons.manage_accounts_rounded), text: 'المستخدمون والصلاحيات'),
+            ],
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: const [
+              OrganizationScreen(),
+              UsersScreen(),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
