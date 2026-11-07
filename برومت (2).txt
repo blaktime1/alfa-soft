@@ -1,0 +1,2532 @@
+ALFA SOFT — MASTER ENGINEERING, PRODUCT, ARCHITECTURE & IMPLEMENTATION DIRECTIVE
+
+1. YOUR ROLE AND PRIMARY MISSION
+
+Act as a complete enterprise software engineering organization consisting of:
+
+- Principal Software Architect
+- Senior Desktop Application Engineer
+- Senior Backend Engineer
+- Database Architect
+- ERP and Accounting Systems Specialist
+- Financial Systems Analyst
+- UI/UX Designer
+- Cybersecurity Engineer
+- QA and Test Automation Engineer
+- DevOps and Release Engineer
+- Technical Documentation Specialist
+
+Your mission is to analyze, architect, implement, test, secure, document, and deliver ALFA SOFT, a complete, production-oriented, extensible, Windows desktop ERP and business management system.
+
+This is not a prototype, UI demonstration, proof of concept, or collection of disconnected screens.
+
+It must be a real, operational business management platform in which every implemented feature has working business logic, persistent database operations, validation, permissions, audit trails, reporting, and appropriate integration with related modules.
+
+The ultimate objective is a reliable, maintainable, commercially distributable enterprise application that can manage real businesses and their daily operations.
+
+Do not sacrifice correctness, security, data integrity, or functionality for development speed or visual appearance.
+
+---
+
+2. NON-NEGOTIABLE DEVELOPMENT PRINCIPLES
+
+These rules apply throughout the entire project.
+
+2.1 Functional completeness
+
+- Never create decorative or non-functional controls.
+- Never implement buttons that do nothing.
+- Never use hardcoded dashboard statistics as production data.
+- Never simulate successful financial transactions.
+- Never display fabricated records as if they were stored records.
+- Never leave critical workflows as frontend-only demonstrations.
+- Every implemented action must execute its actual business operation.
+- Every displayed financial or inventory value must originate from the correct underlying records.
+- All important operations must be validated on the backend or trusted application service layer, not only in the UI.
+
+2.2 Preserve existing functionality
+
+If working inside an existing codebase:
+
+- Inspect the entire existing architecture before modifying it.
+- Preserve all existing working features and business rules.
+- Never remove, overwrite, or break an existing feature merely to implement a new one.
+- Extend existing functionality wherever possible.
+- Do not replace established modules without a documented technical reason and explicit migration plan.
+- Preserve existing database records.
+- Use backward-compatible migrations whenever possible.
+- Maintain existing API contracts unless a documented versioned migration is required.
+- Do not silently change user permissions, financial calculations, or workflow behavior.
+
+Every modification must include regression tests for affected existing functionality.
+
+2.3 Engineering integrity
+
+- Do not claim that a feature is complete unless it is implemented and tested.
+- Do not claim that tests passed unless they were actually executed.
+- Do not hide compilation errors, failed migrations, security warnings, or unfinished functionality.
+- Do not mark mock implementations as production-ready.
+- Do not silently skip requirements.
+- Record every important architectural decision.
+- Explicitly identify unavailable external integrations and their dependencies.
+
+2.4 No destructive shortcuts
+
+Never use destructive database operations as a convenient development shortcut.
+
+Never delete production tables, reset customer data, replace an existing database, or overwrite imported records without explicit authorization and a verified recovery plan.
+
+---
+
+3. PRODUCT IDENTITY AND VISUAL DESIGN
+
+Product Name
+
+ALFA SOFT
+
+Product Description
+
+Enterprise Resource Planning and Business Management System.
+
+The product must have a consistent professional identity across:
+
+- Application startup.
+- License activation.
+- Login and authentication.
+- Main dashboard.
+- All operational modules.
+- Reports.
+- Printed invoices.
+- PDF and Excel exports.
+- Developer licensing portal.
+- Installer and application metadata.
+
+Use the ALFA SOFT name consistently. Support configurable business branding, logos, company names, and document identities without changing the core product identity.
+
+3.1 Approved visual direction: Premium Layered
+
+The official visual direction is Premium Layered Enterprise UI.
+
+Create an elegant, high-quality desktop application with:
+
+- Layered interface composition.
+- Carefully controlled glass-like surfaces.
+- Refined cards and panels.
+- Soft, realistic shadows.
+- Subtle depth and elevation.
+- Sophisticated typography.
+- Consistent spacing and alignment.
+- Carefully designed borders and separators.
+- High-quality icons.
+- Refined navigation.
+- Smooth, restrained transitions.
+- Clear visual hierarchy.
+- Professional data tables.
+- Excellent information density without clutter.
+
+The result must look like a premium commercial enterprise product, not a generic admin dashboard template.
+
+3.2 Design requirements
+
+Create a complete design system including:
+
+- Primary and secondary color palettes.
+- Semantic colors for success, warning, error, information, and neutral states.
+- Typography scale.
+- Spacing scale.
+- Border radius system.
+- Elevation and shadow system.
+- Component states.
+- Form styles.
+- Table styles.
+- Navigation styles.
+- Modal and dialog styles.
+- Notification styles.
+- Chart styles.
+- Empty states.
+- Loading states.
+- Error states.
+- Responsive layout rules.
+
+Support:
+
+1. Premium Light Theme.
+2. Premium Dark Theme.
+
+Theme switching must work throughout the entire application and persist across restarts.
+
+3.3 Arabic and English
+
+Support complete localization:
+
+- Arabic with correct RTL layout.
+- English with correct LTR layout.
+- Correct text alignment.
+- Correct number and date formatting.
+- Localized validation messages.
+- Localized menus and reports.
+- Localized invoice templates.
+- Correct mixed-language content rendering.
+
+Do not implement Arabic as merely right-aligned English UI. All layout behavior must adapt properly to RTL.
+
+3.4 Interface performance
+
+- Use virtualization for large tables.
+- Avoid unnecessary component rendering.
+- Support keyboard navigation.
+- Provide global search.
+- Provide contextual actions.
+- Provide configurable table columns.
+- Support saved filters and views.
+- Support pagination and efficient server-side queries where appropriate.
+
+---
+
+4. TECHNOLOGY STACK AND SYSTEM ARCHITECTURE
+
+Use a maintainable, strongly typed, modular architecture.
+
+4.1 Desktop application
+
+Recommended stack:
+
+- Electron for the Windows desktop shell.
+- React for the UI.
+- TypeScript with strict compiler settings.
+- Vite for development and build tooling.
+- A consistent modern component system.
+- A charting library suitable for enterprise reporting.
+
+The application must use secure Electron architecture.
+
+Security requirements:
+
+- "contextIsolation: true".
+- "nodeIntegration: false".
+- Strict Content Security Policy.
+- Explicit IPC channels.
+- Input validation on IPC boundaries.
+- No arbitrary renderer access to Node.js APIs.
+- No unrestricted shell execution.
+- No insecure remote code loading.
+- No hardcoded secrets in renderer bundles.
+
+Keep business logic out of UI components.
+
+4.2 Local application services
+
+Use a dedicated trusted local application service layer.
+
+The desktop renderer must communicate through controlled IPC interfaces.
+
+Use SQLite as the primary local operational database on each workstation.
+
+SQLite requirements:
+
+- WAL mode where appropriate.
+- Foreign key enforcement.
+- Transactional operations.
+- Appropriate indexes.
+- Safe concurrent access.
+- Database integrity checks.
+- Schema migrations.
+- Busy timeout and controlled write access.
+- Reliable backup and restore.
+- Crash recovery procedures.
+
+The application must remain fully functional when internet access is unavailable.
+
+4.3 Central synchronization infrastructure
+
+Use:
+
+- Node.js.
+- NestJS.
+- TypeScript.
+- REST API.
+- PostgreSQL for the central synchronization and multi-device infrastructure.
+- Secure authentication.
+- Structured API versioning.
+- Background processing where needed.
+
+The architecture must support:
+
+- Independent offline workstations.
+- Optional local network synchronization.
+- Remote synchronization over the internet.
+- Centralized administration when configured.
+- Local-first operation even when the central server is unavailable.
+
+Do not assume SQLite and PostgreSQL behave identically.
+
+Implement an explicit database abstraction and migration strategy. Document and test database-specific behavior.
+
+Do not rely on a simplistic automatic bidirectional database replication mechanism.
+
+4.4 Repository organization
+
+Use a clean monorepo structure, for example:
+
+- "apps/desktop"
+- "apps/sync-server"
+- "apps/developer-portal"
+- "packages/domain"
+- "packages/database"
+- "packages/shared"
+- "packages/ui"
+- "packages/reporting"
+- "packages/sync-engine"
+- "packages/licensing"
+- "packages/security"
+- "packages/integrations"
+- "packages/testing"
+- "docs"
+- "scripts"
+- "installer"
+
+Adjust the structure if a better documented architecture is justified.
+
+Keep domain logic reusable and independent of the renderer.
+
+---
+
+5. UNIVERSAL BUSINESS MODEL
+
+ALFA SOFT must be suitable for different business types, not only one shop or industry.
+
+Examples include:
+
+- Retail stores.
+- Wholesale businesses.
+- Supermarkets.
+- Warehouses.
+- Distribution companies.
+- Electronics stores.
+- Clothing stores.
+- Restaurants where applicable.
+- Service businesses.
+- Small and medium enterprises.
+- Multi-branch companies.
+- General trading companies.
+
+Use a flexible configuration-driven system.
+
+Support configurable:
+
+- Units of measurement.
+- Product types.
+- Pricing rules.
+- Tax rules.
+- Inventory policies.
+- Invoice templates.
+- Payment methods.
+- Business categories.
+- Custom fields.
+- Document numbering.
+- Approval workflows.
+
+Do not hardcode one business model into the core system.
+
+---
+
+6. COMPLETE FUNCTIONAL MODULES
+
+Implement the following modules as integrated parts of one system.
+
+6.1 Company and organization management
+
+Support:
+
+- Multiple companies.
+- Multiple branches.
+- Multiple warehouses.
+- Company profiles.
+- Legal and commercial information.
+- Tax information.
+- Logos and branding.
+- Branch-specific settings.
+- Fiscal years.
+- Accounting periods.
+- Company-specific currencies.
+- Company-specific numbering sequences.
+- Inter-branch operations.
+- Company-level permissions.
+- Branch-level permissions.
+
+Data belonging to one company must never become visible to another unauthorized company.
+
+6.2 Dashboard and business intelligence
+
+Create a real-time operational dashboard.
+
+Display actual database-derived information such as:
+
+- Today's sales.
+- Sales this week.
+- Sales this month.
+- Gross profit.
+- Net profit where properly calculated.
+- Purchases.
+- Expenses.
+- Cash balance.
+- Bank balances.
+- Customer debts.
+- Supplier debts.
+- Outstanding invoices.
+- Low-stock products.
+- Out-of-stock products.
+- Inventory valuation.
+- Top-selling products.
+- Sales trends.
+- Purchase trends.
+- Payment distribution.
+- Branch comparisons.
+- Recent transactions.
+- Pending approvals.
+- Operational alerts.
+
+Requirements:
+
+- Date filters.
+- Branch filters.
+- Warehouse filters.
+- Currency-aware reporting.
+- Role-based dashboard visibility.
+- Drill-down from summary figures into source records.
+- Exportable charts and reports.
+- Correct handling of canceled, returned, and draft transactions.
+
+Every dashboard metric must have a documented calculation rule.
+
+Never calculate profit as sales revenue alone.
+
+6.3 Product and service catalog
+
+Support:
+
+- Products.
+- Services.
+- Product categories.
+- Subcategories.
+- Brands.
+- Manufacturers.
+- Product images.
+- Product descriptions.
+- SKU.
+- Barcode.
+- QR code.
+- Multiple barcodes.
+- Units of measurement.
+- Unit conversions.
+- Product variants.
+- Size and color.
+- Serial numbers.
+- IMEI numbers.
+- Batch numbers.
+- Expiration dates.
+- Warranty information.
+- Purchase prices.
+- Selling prices.
+- Wholesale prices.
+- Retail prices.
+- Minimum prices.
+- Multiple price lists.
+- Discount policies.
+- Tax categories.
+- Reorder levels.
+- Minimum and maximum stock.
+- Composite products and kits.
+- Bundles.
+- Product attributes.
+- Custom fields.
+- Active and archived states.
+
+Prevent invalid stock and pricing operations.
+
+6.4 Inventory and warehouse management
+
+Implement:
+
+- Multiple warehouses.
+- Warehouse locations and bins.
+- Opening inventory.
+- Stock receipts.
+- Stock issues.
+- Stock transfers.
+- Stock adjustments.
+- Stock reservations.
+- Stock releases.
+- Inventory counting.
+- Physical inventory reconciliation.
+- Damaged goods.
+- Expired products.
+- Batch tracking.
+- Serial tracking.
+- Expiry alerts.
+- Reorder alerts.
+- Stock movement history.
+- Inventory valuation.
+- Stock cards.
+- Inventory aging.
+- Warehouse-to-warehouse transfers.
+- Inventory reconciliation reports.
+
+Use documented inventory costing policies, such as:
+
+- Weighted Average Cost.
+- FIFO.
+
+Select the costing policy at the appropriate company or inventory configuration level.
+
+Ensure that the chosen costing method is consistently reflected in inventory valuation and accounting.
+
+Never allow negative stock unless explicitly enabled by authorized policy.
+
+If negative stock is allowed, record it clearly and handle subsequent costing adjustments correctly.
+
+6.5 Point of Sale (POS)
+
+Create a dedicated, high-performance POS interface.
+
+Features:
+
+- Full-screen POS mode.
+- Barcode scanner support.
+- Keyboard-first operation.
+- Touch-friendly controls.
+- Product search.
+- Product categories.
+- Quick product selection.
+- Multiple price lists.
+- Customer selection.
+- Walk-in customer.
+- Discounts.
+- Tax calculations.
+- Multiple payment methods.
+- Split payments.
+- Cash payments.
+- Card payments.
+- Bank transfers.
+- Credit sales.
+- Partial payments.
+- Customer account payments.
+- Cash drawer management.
+- Shift opening.
+- Shift closing.
+- Cash reconciliation.
+- Cashier identification.
+- Suspended sales.
+- Resume suspended sales.
+- Hold and retrieve transactions.
+- Sales returns.
+- Receipt printing.
+- Thermal printer support.
+- Reprint controls.
+- Offline sales.
+- Daily cashier summaries.
+
+POS transactions must execute complete atomic business workflows.
+
+A completed sale must update all relevant records:
+
+- Sales documents.
+- Inventory.
+- Inventory valuation.
+- Accounting journal.
+- Cash or bank accounts.
+- Customer balances.
+- Tax records.
+- Audit logs.
+- Synchronization queue.
+
+If any critical operation fails, use a proper transaction rollback or a documented recovery mechanism.
+
+Prevent duplicate sales caused by repeated clicks, retry requests, or synchronization.
+
+6.6 Sales management
+
+Support:
+
+- Quotations.
+- Sales orders.
+- Delivery notes.
+- Sales invoices.
+- Pro forma invoices.
+- Credit notes.
+- Sales returns.
+- Customer deposits.
+- Partial payments.
+- Credit sales.
+- Discounts.
+- Taxes.
+- Invoice approval.
+- Invoice cancellation.
+- Sales history.
+- Salesperson commissions where configured.
+- Customer-specific prices.
+- Multiple invoice templates.
+
+Document the relationship between quotations, orders, deliveries, invoices, returns, and payments.
+
+Prevent invalid state transitions.
+
+6.7 Purchasing and suppliers
+
+Support:
+
+- Purchase requests.
+- Purchase orders.
+- Goods received notes.
+- Supplier invoices.
+- Purchase returns.
+- Supplier credit notes.
+- Supplier payments.
+- Partial payments.
+- Supplier advances.
+- Purchase expenses.
+- Landed costs.
+- Supplier price lists.
+- Supplier balances.
+- Supplier statements.
+- Purchase approvals.
+- Purchase history.
+
+Receiving goods must correctly affect inventory and accounting.
+
+Do not increase stock merely because a purchase order was created.
+
+6.8 Customer management
+
+Support:
+
+- Customer profiles.
+- Customer groups.
+- Contact details.
+- Addresses.
+- Tax information.
+- Credit limits.
+- Payment terms.
+- Customer pricing.
+- Opening balances.
+- Outstanding balances.
+- Account statements.
+- Transaction history.
+- Customer notes.
+- Attachments.
+- Customer activity history.
+- Customer-specific discounts.
+- Credit warnings.
+- Customer aging reports.
+
+6.9 Supplier management
+
+Support:
+
+- Supplier profiles.
+- Contact details.
+- Addresses.
+- Tax information.
+- Payment terms.
+- Credit balances.
+- Opening balances.
+- Outstanding payables.
+- Supplier statements.
+- Supplier transaction history.
+- Supplier attachments.
+- Supplier aging reports.
+
+6.10 Accounting and financial management
+
+Implement a real double-entry accounting subsystem.
+
+This is a critical module. Do not create superficial financial screens without an accounting engine.
+
+Support:
+
+- Chart of accounts.
+- Account groups.
+- Account hierarchy.
+- General ledger.
+- Journal entries.
+- Automatic journal generation.
+- Manual journal entries.
+- Trial balance.
+- Income statement.
+- Balance sheet.
+- Cash flow statement.
+- Accounts receivable.
+- Accounts payable.
+- Opening balances.
+- Closing entries.
+- Fiscal periods.
+- Period locking.
+- Reversing entries.
+- Cost centers.
+- Profit centers.
+- Departmental accounting.
+- Budgeting.
+- Financial dimensions.
+- Financial audit trails.
+
+Accounting requirements:
+
+1. Every posted journal entry must balance.
+2. Debit totals must equal credit totals.
+3. Posted journal entries must not be silently edited or deleted.
+4. Corrections must use documented reversal or adjustment workflows.
+5. Every automatic journal entry must reference its originating business transaction.
+6. Financial reports must reconcile to their underlying ledger records.
+7. Closed periods must reject unauthorized posting.
+8. Financial calculations must use fixed-precision decimal arithmetic.
+9. Never use floating-point arithmetic for monetary calculations.
+10. Use documented rounding rules.
+11. Enforce currency precision.
+12. Prevent duplicate posting.
+13. Provide reconciliation tools.
+
+Support configurable accounting rules and account mappings for each company.
+
+Do not claim legal or statutory compliance with a country's accounting or tax regulations unless those rules have been explicitly implemented, reviewed, and tested.
+
+6.11 Cash, banks, and treasury
+
+Support:
+
+- Multiple cashboxes.
+- Multiple bank accounts.
+- Cash receipts.
+- Cash payments.
+- Internal transfers.
+- Bank transfers.
+- Bank reconciliation.
+- Cash reconciliation.
+- Cash opening balances.
+- Cash closing balances.
+- Petty cash.
+- Cash expenses.
+- Bank statements.
+- Unmatched transactions.
+- Payment references.
+- Payment methods.
+- Cash flow reporting.
+
+6.12 Expenses and income
+
+Support:
+
+- Expense categories.
+- Income categories.
+- Expense vouchers.
+- Income vouchers.
+- Recurring expenses.
+- Operational expenses.
+- Employee-related expenses.
+- Rent.
+- Utilities.
+- Transport.
+- Maintenance.
+- Other configurable categories.
+- Attachments and receipts.
+- Approval workflows.
+- Accounting integration.
+- Expense reports.
+
+6.13 Human resources and employee management
+
+Provide a configurable HR foundation:
+
+- Employee records.
+- Departments.
+- Positions.
+- Employment status.
+- Contact details.
+- Salary information.
+- Attendance records.
+- Leave records.
+- Advances.
+- Deductions.
+- Allowances.
+- Payroll configuration.
+- Payroll calculations.
+- Payroll approval.
+- Payroll accounting integration.
+- Employee loans.
+- Employee activity history.
+
+Keep sensitive employee information protected by strict permissions.
+
+Payroll laws and statutory deductions must remain configurable and must not be falsely presented as compliant without country-specific implementation.
+
+6.14 Returns, refunds, and exchange management
+
+Support:
+
+- Sales returns.
+- Purchase returns.
+- Full refunds.
+- Partial refunds.
+- Exchanges.
+- Damaged product returns.
+- Restocking rules.
+- Refund payment methods.
+- Credit notes.
+- Return approvals.
+- Original transaction references.
+- Inventory and accounting reversals.
+
+Every return must reference its source transaction whenever applicable.
+
+6.15 Tax and multi-currency management
+
+Support:
+
+- Configurable tax types.
+- Tax-inclusive prices.
+- Tax-exclusive prices.
+- Multiple tax rates.
+- Tax exemptions.
+- Tax reports.
+- Tax rounding rules.
+- Multiple currencies.
+- Base currency.
+- Exchange rates.
+- Historical exchange rates.
+- Realized gains and losses.
+- Currency revaluation where configured.
+- Foreign currency customer and supplier balances.
+
+Never overwrite historical exchange rates used by posted transactions.
+
+6.16 Notifications and alerts
+
+Provide:
+
+- Low-stock notifications.
+- Expiry warnings.
+- Credit-limit warnings.
+- Overdue invoice alerts.
+- Pending approval alerts.
+- Failed synchronization alerts.
+- Backup failure alerts.
+- License expiration alerts.
+- System health notifications.
+
+Support in-app notifications and configurable notification delivery integrations.
+
+Do not make external notification services mandatory for core operations.
+
+6.17 Attachments and document management
+
+Support secure attachment storage for:
+
+- Invoices.
+- Receipts.
+- Purchase documents.
+- Customer documents.
+- Supplier documents.
+- Employee documents.
+- General records.
+
+Implement:
+
+- File type validation.
+- File size limits.
+- Safe file naming.
+- Access control.
+- Attachment metadata.
+- Backup inclusion.
+- Integrity verification.
+- Safe deletion policies.
+
+---
+
+7. UNIVERSAL DATA TREE AND RECORD MANAGEMENT
+
+Provide a clear hierarchical data explorer.
+
+Users with appropriate permissions must be able to navigate:
+
+Company → Branch → Warehouse → Category → Product → Transactions → Related Documents.
+
+Also support related trees for:
+
+- Customers.
+- Suppliers.
+- Employees.
+- Chart of accounts.
+- Financial transactions.
+- Documents.
+- Reports.
+- Attachments.
+- Audit history.
+
+Requirements:
+
+- Expand and collapse.
+- Search.
+- Filtering.
+- Sorting.
+- Pagination.
+- Contextual menus.
+- Related-record navigation.
+- Permission-aware visibility.
+- Export.
+- Bulk actions.
+- Saved views.
+- Data relationship visualization where useful.
+
+Do not expose unauthorized records through search, exports, drill-down, or related-record views.
+
+---
+
+8. DOCUMENT NUMBERING AND WORKFLOW ENGINE
+
+Implement configurable document numbering.
+
+Examples:
+
+- INV-2026-000001
+- PUR-2026-000001
+- RET-2026-000001
+- PAY-2026-000001
+
+Support:
+
+- Company-level sequences.
+- Branch-level sequences.
+- Document-type sequences.
+- Fiscal-year sequences.
+- Prefixes and suffixes.
+- Configurable reset policies.
+- Collision prevention.
+- Concurrent numbering safety.
+
+Create a workflow engine for document states.
+
+Typical states:
+
+- Draft.
+- Pending Review.
+- Pending Approval.
+- Approved.
+- Posted.
+- Partially Paid.
+- Paid.
+- Partially Fulfilled.
+- Fulfilled.
+- Rejected.
+- Cancelled.
+- Reversed.
+- Archived.
+
+Only valid transitions may be executed.
+
+Approval policies must be configurable by company, branch, document type, amount, and role.
+
+---
+
+9. USER MANAGEMENT, ROLES, AND ACCESS CONTROL
+
+Implement secure identity and access management.
+
+Support:
+
+- User accounts.
+- Roles.
+- Permissions.
+- Permission groups.
+- Custom roles.
+- User activation and suspension.
+- Password policies.
+- Session management.
+- Login history.
+- Failed login tracking.
+- Password reset procedures.
+- Optional multi-factor authentication.
+- Device sessions.
+- User activity logs.
+
+Use fine-grained permissions.
+
+Examples:
+
+- View sales.
+- Create sales.
+- Edit draft sales.
+- Post sales.
+- Cancel invoices.
+- Approve purchases.
+- View costs.
+- View profits.
+- View customer balances.
+- Export financial data.
+- Manage users.
+- Manage licenses.
+- Modify system settings.
+
+Support data scope restrictions:
+
+- Company.
+- Branch.
+- Warehouse.
+- Department.
+- Assigned records.
+
+Enforce permissions in the business service layer and API, not just by hiding UI elements.
+
+Prevent privilege escalation.
+
+Use secure password hashing with a modern password hashing algorithm.
+
+---
+
+10. FULL AUDIT AND ACCOUNTABILITY SYSTEM
+
+Every important operation must be traceable.
+
+Record:
+
+- User.
+- Device.
+- Company.
+- Branch.
+- Operation.
+- Entity type.
+- Entity identifier.
+- Previous values where appropriate.
+- New values where appropriate.
+- Timestamp.
+- Source application.
+- Request identifier.
+- Reason for sensitive changes.
+- Approval information.
+
+Audit sensitive actions including:
+
+- Login attempts.
+- User changes.
+- Permission changes.
+- Financial postings.
+- Invoice cancellation.
+- Inventory adjustments.
+- Data imports.
+- Data exports.
+- Backups.
+- Restores.
+- License activation.
+- Configuration changes.
+- Synchronization conflict resolution.
+
+Audit records must not be editable through ordinary application functions.
+
+Protect logs against unauthorized modification and deletion.
+
+Provide authorized audit search and export.
+
+---
+
+11. OFFLINE-FIRST OPERATION AND MULTI-DEVICE SYNCHRONIZATION
+
+This is a core architectural requirement.
+
+The application must continue operating when the internet is unavailable.
+
+11.1 Independent local operation
+
+Each workstation must have its own reliable local database.
+
+Users must be able to:
+
+- Open the application.
+- Authenticate according to configured local authentication policy.
+- Create sales.
+- Record purchases.
+- Update inventory.
+- Manage customers.
+- Record payments.
+- Print invoices.
+- Generate local reports.
+- Continue normal business operations.
+
+Do not require a permanent internet connection for everyday local operation.
+
+11.2 Synchronization modes
+
+Support:
+
+1. Manual synchronization.
+2. Automatic synchronization.
+3. Local network synchronization.
+4. Internet-based synchronization.
+5. Transfer-package synchronization using removable storage.
+
+11.3 Synchronization architecture
+
+Implement a dedicated synchronization engine.
+
+Include:
+
+- Transactional outbox.
+- Incoming change queue.
+- Stable globally unique identifiers.
+- Device identifiers.
+- Operation identifiers.
+- Idempotency keys.
+- Change sequence numbers.
+- Version tracking.
+- Acknowledgements.
+- Retry policies.
+- Exponential backoff.
+- Conflict detection.
+- Conflict resolution.
+- Synchronization checkpoints.
+- Tombstones for deletions.
+- Integrity verification.
+- Sync history.
+- Failed-operation recovery.
+
+Never use timestamps alone to determine which record wins.
+
+Never blindly overwrite newer business data.
+
+11.4 Conflict handling
+
+Define conflict policies for:
+
+- Product information.
+- Pricing.
+- Customer records.
+- Supplier records.
+- Inventory quantities.
+- Financial transactions.
+- User permissions.
+- Configuration.
+
+Financial postings and stock movements must use domain-aware conflict resolution.
+
+Do not automatically merge conflicting financial records in a way that changes accounting results.
+
+Provide a conflict review interface for authorized users.
+
+Display:
+
+- Conflicting records.
+- Origin devices.
+- Change details.
+- Possible consequences.
+- Available resolution options.
+- Resolution history.
+
+11.5 Synchronization reliability
+
+- Repeated synchronization must not duplicate transactions.
+- Interrupted synchronization must resume safely.
+- Partial transfers must not corrupt data.
+- Failed synchronization must not delete local records.
+- Conflicts must be observable.
+- Every synchronized operation must be traceable.
+
+The system must remain usable when the central server is unavailable.
+
+---
+
+12. UNIVERSAL DATA IMPORT AND MIGRATION CENTER
+
+Create a professional data import and migration module.
+
+The objective is to allow businesses to migrate data from almost any reasonably accessible legacy system.
+
+12.1 Supported sources
+
+Support, where technically available:
+
+- SQLite.
+- MySQL.
+- MariaDB.
+- PostgreSQL.
+- Microsoft SQL Server.
+- Oracle Database through an optional compatible connector.
+- SQL dump files.
+- CSV.
+- Excel XLSX.
+- JSON.
+- XML.
+- REST APIs.
+- Structured ZIP migration packages.
+
+Clearly document optional connector dependencies.
+
+Never pretend to support a database source that has not been tested.
+
+12.2 Database discovery
+
+When a user connects an external database, analyze its structure.
+
+Discover:
+
+- Databases.
+- Schemas.
+- Tables.
+- Views.
+- Columns.
+- Data types.
+- Primary keys.
+- Foreign keys.
+- Indexes.
+- Relationships.
+- Nullability.
+- Unique constraints.
+- Approximate record counts.
+- Sample records.
+- Date formats.
+- Character encodings.
+
+Use read-only access by default.
+
+Never modify the original source database.
+
+12.3 Smart field mapping
+
+Implement a mapping assistant that suggests relationships between external fields and ALFA SOFT fields.
+
+Examples:
+
+- "product_name" → Product Name.
+- "item_code" → SKU.
+- "selling_price" → Sale Price.
+- "customer_mobile" → Customer Phone.
+- "qty" → Quantity.
+- "created_at" → Creation Date.
+
+The mapping assistant must:
+
+- Suggest mappings.
+- Explain confidence.
+- Allow manual correction.
+- Detect ambiguous mappings.
+- Preserve unmapped information.
+- Support custom field mapping.
+- Save reusable mapping profiles.
+
+AI-assisted mapping may be optional, but core import must work without an AI service.
+
+12.4 Import workflow
+
+Use this sequence:
+
+1. Connect to the source.
+2. Inspect its structure.
+3. Select data sources.
+4. Analyze relationships.
+5. Map fields.
+6. Preview sample records.
+7. Validate data.
+8. Detect duplicates.
+9. Identify missing relationships.
+10. Generate an import plan.
+11. Show warnings.
+12. Create a recovery backup.
+13. Execute a transactional or safely staged import.
+14. Generate a detailed result report.
+15. Verify imported record counts and relationships.
+
+Support:
+
+- Initial import.
+- Incremental import.
+- Merge.
+- Selective replacement with explicit approval.
+- Historical transaction import.
+- Dry-run validation.
+- Resume after interruption where safe.
+- Import rollback where supported.
+
+Never overwrite destination data without clear authorization.
+
+12.5 Preserve unknown data
+
+If a legacy system contains fields that have no direct ALFA SOFT equivalent:
+
+- Preserve their original values.
+- Store their source metadata.
+- Offer custom fields.
+- Maintain source-to-destination mapping information.
+- Avoid silently discarding information.
+
+Provide an import history and reconciliation report.
+
+---
+
+13. DATABASE EXPORT, TRANSFER, BACKUP, AND RESTORE
+
+Create a dedicated data management center.
+
+13.1 Selective export
+
+Allow authorized users to export:
+
+- Entire company.
+- Specific company.
+- Branch.
+- Warehouse.
+- Products.
+- Customers.
+- Suppliers.
+- Employees.
+- Transactions.
+- Accounting records.
+- Selected date range.
+- Selected tables or data groups.
+- Attachments.
+- Complete system archive.
+
+13.2 Transfer packages
+
+Generate structured packages containing:
+
+- Manifest.
+- Schema version.
+- Application version.
+- Source identity.
+- Export timestamp.
+- Included entities.
+- Relationship metadata.
+- Record counts.
+- File checksums.
+- Integrity metadata.
+- Optional encryption metadata.
+- Attachments where selected.
+
+Support password-protected encryption using modern authenticated encryption.
+
+Never use weak or custom cryptographic algorithms.
+
+13.3 Importing transfer packages
+
+Before importing:
+
+- Validate package format.
+- Validate checksums.
+- Validate schema compatibility.
+- Detect duplicate identifiers.
+- Detect conflicting records.
+- Show the import plan.
+- Explain possible consequences.
+- Require appropriate authorization.
+- Create a recovery backup.
+
+Do not automatically replace existing business data.
+
+13.4 Backup and restore
+
+Implement:
+
+- Manual backups.
+- Scheduled backups.
+- Full backups.
+- Incremental backups where practical.
+- Encrypted backups.
+- Backup rotation.
+- Backup verification.
+- Restore preview.
+- Restore to an isolated location.
+- Restore logs.
+- Backup retention policies.
+
+Provide documented disaster recovery procedures.
+
+Test actual restore operations, not just backup file creation.
+
+---
+
+14. ADVANCED SQL IMPORT AND EXECUTION SANDBOX
+
+Provide an advanced database inspection and migration workspace.
+
+Requirements:
+
+- SQL syntax inspection.
+- Database schema inspection.
+- Table and column discovery.
+- Query preview.
+- Execution limits.
+- Timeout protection.
+- Read-only mode by default.
+- Explicit write-operation authorization.
+- Isolated temporary databases.
+- Query history.
+- Error reporting.
+- Export results.
+
+Use a real SQL parser or appropriate database engine inspection tools.
+
+Do not rely on simple regular expressions as the primary SQL safety mechanism.
+
+Never execute untrusted SQL against the production database.
+
+Use isolated staging environments and enforce resource limits.
+
+---
+
+15. REPORTING, PRINTING, AND DOCUMENT GENERATION
+
+Create a complete reporting and document engine.
+
+15.1 Standard reports
+
+Include:
+
+- Sales reports.
+- Purchase reports.
+- Profit reports.
+- Expense reports.
+- Customer statements.
+- Supplier statements.
+- Receivables aging.
+- Payables aging.
+- Inventory reports.
+- Stock movement reports.
+- Stock valuation reports.
+- Low-stock reports.
+- Expiry reports.
+- Cash reports.
+- Bank reports.
+- Cash flow reports.
+- Trial balance.
+- General ledger.
+- Income statement.
+- Balance sheet.
+- Tax reports.
+- Employee reports.
+- Payroll reports.
+- Audit reports.
+- Synchronization reports.
+- Import and export reports.
+
+15.2 Advanced report builder
+
+Allow authorized users to:
+
+- Select data sources.
+- Select columns.
+- Apply filters.
+- Group records.
+- Sort results.
+- Create calculated fields where safe.
+- Save report templates.
+- Schedule reports where supported.
+- Export reports.
+- Control access.
+
+Apply data permissions to every report query.
+
+15.3 Export formats
+
+Support:
+
+- PDF.
+- Excel XLSX.
+- CSV.
+- Print-ready documents.
+
+15.4 Printing
+
+Support:
+
+- A4.
+- A5.
+- 58mm thermal receipts.
+- 80mm thermal receipts.
+- Configurable custom paper sizes.
+- Standard office printers.
+- Thermal printers.
+- Barcode printers where applicable.
+- QR codes.
+- Barcode labels.
+- Invoice templates.
+- Receipt templates.
+- Report templates.
+
+Include:
+
+- Print preview.
+- Printer selection.
+- Copies.
+- Page margins.
+- Header and footer configuration.
+- Company branding.
+- Arabic RTL support.
+- English LTR support.
+- Accurate currency formatting.
+- Document numbering.
+- User and date metadata.
+
+Provide reliable PDF generation even when no physical printer is connected.
+
+---
+
+16. LICENSING SYSTEM AND COMMERCIAL PROTECTION
+
+Implement a professional commercial licensing architecture.
+
+The application must not enter its normal operational environment without a valid license or authorized trial.
+
+The licensing system must be controlled by the software developer, not by ordinary customer accounts.
+
+16.1 License types
+
+Support:
+
+- 7-day license.
+- 30-day license.
+- Monthly license.
+- Annual license.
+- Custom-duration license.
+- Lifetime license.
+- Trial license.
+- Evaluation license.
+
+The developer must be able to define custom packages and durations.
+
+16.2 License policies
+
+Support configurable limits for:
+
+- Licensed company.
+- Number of devices.
+- Number of branches.
+- Number of users.
+- Enabled modules.
+- Subscription duration.
+- Activation count.
+- Expiration date.
+- Offline activation policy.
+- Grace period.
+
+16.3 License activation
+
+Support:
+
+- Online activation.
+- Offline activation.
+- Device registration.
+- Device replacement.
+- Device deactivation.
+- License renewal.
+- License transfer under developer policy.
+
+For offline activation, use a challenge-response process:
+
+1. Application generates a device-bound activation request.
+2. Customer transfers the request to the developer.
+3. Developer issues a signed license response.
+4. Customer imports the license file.
+5. Application verifies the signature and device binding.
+
+16.4 Cryptographic design
+
+Use public-key digital signatures, preferably Ed25519.
+
+- Private signing keys must remain under developer control.
+- Never embed the private key in the customer application.
+- Embed only the public verification key in the application.
+- Sign license payloads.
+- Validate signatures.
+- Validate expiration.
+- Validate device binding.
+- Validate license scope.
+- Support signed revocation information when available.
+
+Do not claim that licensing makes reverse engineering or software cracking impossible.
+
+Use layered defenses and honest security boundaries.
+
+16.5 Expiration and data safety
+
+When a license expires:
+
+- Display clear expiration information.
+- Notify users before expiration.
+- Enforce the configured grace period.
+- Restrict licensed operational features according to policy.
+- Preserve all customer data.
+- Do not corrupt or delete databases.
+- Provide an authorized data export path where policy permits.
+- Do not silently destroy access to customer records.
+
+Implement reasonable protection against local clock manipulation, while documenting the limitations of fully offline time verification.
+
+16.6 Independent developer licensing portal
+
+Build a separate web-based developer portal.
+
+This portal must not be confused with the customer ERP administration panel.
+
+Developer portal features:
+
+- Developer authentication.
+- Secure administrative roles.
+- Customer management.
+- License creation.
+- License renewal.
+- License suspension.
+- License revocation.
+- Device activation management.
+- Activation history.
+- License expiration tracking.
+- Product edition management.
+- Feature entitlement management.
+- License usage statistics.
+- Audit logs.
+- Secure license signing.
+- License download.
+- Offline activation request processing.
+- Customer support notes.
+
+Store private signing keys securely outside ordinary application databases and source repositories.
+
+Require strong authentication and additional protection for sensitive signing operations.
+
+---
+
+17. SETTINGS AND SYSTEM CONFIGURATION
+
+Create a complete settings center.
+
+Include:
+
+- General settings.
+- Company settings.
+- Branch settings.
+- Warehouse settings.
+- Language.
+- Theme.
+- Currency.
+- Date formats.
+- Number formats.
+- Tax settings.
+- Accounting settings.
+- Inventory settings.
+- POS settings.
+- Printing settings.
+- Barcode settings.
+- User settings.
+- Security settings.
+- Backup settings.
+- Synchronization settings.
+- Notification settings.
+- Import settings.
+- Export settings.
+- License information.
+- Application updates.
+- Integrations.
+- Custom fields.
+- Numbering rules.
+- Approval policies.
+
+Settings must have appropriate validation, permissions, persistence, and audit history.
+
+---
+
+18. SECURITY ENGINEERING
+
+Treat security as a foundational requirement.
+
+Implement:
+
+- Secure authentication.
+- Password hashing.
+- Session expiration.
+- Role-based access control.
+- Fine-grained permissions.
+- Secure IPC.
+- API authentication.
+- Input validation.
+- Output encoding.
+- SQL injection prevention.
+- XSS prevention.
+- CSRF protection where applicable.
+- Rate limiting.
+- Secure file handling.
+- Secrets management.
+- Encryption at rest where appropriate.
+- TLS for network communication.
+- Secure update verification.
+- Audit logging.
+- Dependency vulnerability scanning.
+- Secure error handling.
+- Least-privilege access.
+- Protection against privilege escalation.
+
+Do not expose:
+
+- Database credentials.
+- Signing keys.
+- API secrets.
+- Internal filesystem paths.
+- Sensitive customer information.
+
+Never store passwords in plaintext.
+
+Never trust client-side permissions.
+
+Never trust imported data.
+
+Never execute arbitrary uploaded files.
+
+Define a threat model and document security assumptions.
+
+---
+
+19. SYSTEM HEALTH, MAINTENANCE, AND OBSERVABILITY
+
+Provide an administrative system health center.
+
+Display:
+
+- Database status.
+- Database integrity.
+- Storage usage.
+- Backup status.
+- Last successful backup.
+- Synchronization status.
+- Pending synchronization operations.
+- Failed synchronization operations.
+- License status.
+- Application version.
+- Update availability.
+- Printer availability.
+- Recent application errors.
+- Import history.
+- System maintenance status.
+
+Implement structured logs with:
+
+- Severity.
+- Timestamp.
+- Component.
+- Correlation ID.
+- Operation ID.
+- Error details.
+- Safe diagnostic metadata.
+
+Do not log passwords, tokens, signing keys, or unnecessary sensitive information.
+
+Provide a safe diagnostic export for technical support.
+
+---
+
+20. UPDATE AND RELEASE MANAGEMENT
+
+Implement a controlled application update system.
+
+Requirements:
+
+- Version management.
+- Release channels where appropriate.
+- Update notifications.
+- Digitally signed update packages.
+- Package integrity verification.
+- Secure download.
+- Database migration compatibility checks.
+- Backup before risky migrations.
+- Rollback strategy where technically possible.
+- Release notes.
+- Installation recovery.
+- Update history.
+
+Never install an unverified update.
+
+Never perform a destructive migration without a recovery plan.
+
+Support offline/manual updates using verified packages.
+
+---
+
+21. EXTENSIBILITY AND INTEGRATION FRAMEWORK
+
+Design ALFA SOFT for future expansion.
+
+Support modular extensions for:
+
+- Industry-specific workflows.
+- Custom fields.
+- Additional reports.
+- External integrations.
+- Payment gateways.
+- E-commerce.
+- Shipping.
+- Messaging.
+- Accounting integrations.
+- Import connectors.
+
+Provide documented APIs and integration contracts.
+
+Do not allow arbitrary untrusted plugins to execute with unrestricted system privileges.
+
+Use permission-controlled extension interfaces.
+
+External integrations must fail gracefully without breaking core operations.
+
+---
+
+22. DATA MODEL AND DATABASE DESIGN
+
+Design a normalized, documented, scalable data model.
+
+Include appropriate entities for:
+
+- Companies.
+- Branches.
+- Warehouses.
+- Warehouse locations.
+- Users.
+- Roles.
+- Permissions.
+- Products.
+- Categories.
+- Units.
+- Customers.
+- Suppliers.
+- Employees.
+- Sales.
+- Sales items.
+- Purchases.
+- Purchase items.
+- Payments.
+- Cashboxes.
+- Bank accounts.
+- Inventory movements.
+- Stock balances.
+- Accounting accounts.
+- Journal entries.
+- Journal lines.
+- Expenses.
+- Taxes.
+- Currencies.
+- Exchange rates.
+- Documents.
+- Attachments.
+- Approvals.
+- Audit logs.
+- Synchronization operations.
+- Import jobs.
+- Export jobs.
+- Licenses.
+- Devices.
+- Settings.
+- Notifications.
+
+Requirements:
+
+- Primary keys.
+- Foreign keys.
+- Unique constraints.
+- Check constraints where supported.
+- Indexes.
+- Proper data types.
+- Explicit nullability.
+- Creation and update timestamps.
+- Stable globally unique identifiers for synchronization.
+- Soft deletion only where appropriate.
+- Documented retention rules.
+- Referential integrity.
+- Migration versioning.
+
+Use fixed-precision decimal types for money.
+
+Define consistent timestamp and timezone handling.
+
+Never use floating-point values for financial amounts.
+
+Document every important entity and relationship.
+
+---
+
+23. FINANCIAL AND INVENTORY TRANSACTION INTEGRITY
+
+This section is mandatory.
+
+Every important business operation must be implemented as a complete domain workflow.
+
+For example, a posted sales invoice may involve:
+
+1. Permission verification.
+2. Input validation.
+3. Customer validation.
+4. Product validation.
+5. Pricing and discount calculation.
+6. Tax calculation.
+7. Stock availability verification.
+8. Inventory movement creation.
+9. Inventory valuation adjustment.
+10. Sales document posting.
+11. Accounting journal generation.
+12. Customer balance update.
+13. Payment recording where applicable.
+14. Cash or bank balance update.
+15. Audit record creation.
+16. Synchronization outbox entry.
+17. Report data refresh or invalidation.
+18. Document printing availability.
+
+All related operations must be atomic within the appropriate local database transaction.
+
+For operations involving remote services, use an explicit reliable workflow such as transactional outbox and compensating actions where appropriate.
+
+Do not assume that a distributed transaction across SQLite and PostgreSQL is automatically atomic.
+
+Implement reconciliation jobs to detect inconsistencies between:
+
+- Inventory movements and stock balances.
+- Sales documents and accounting entries.
+- Payments and cash/bank accounts.
+- Customer balances and receivable ledgers.
+- Supplier balances and payable ledgers.
+- Document totals and their line items.
+
+Provide safe correction workflows that preserve audit history.
+
+---
+
+24. TESTING AND QUALITY ASSURANCE
+
+Create a comprehensive automated testing strategy.
+
+24.1 Unit tests
+
+Test:
+
+- Pricing.
+- Discounts.
+- Taxes.
+- Currency conversion.
+- Rounding.
+- Inventory costing.
+- Stock availability.
+- Accounting calculations.
+- Journal balancing.
+- Document numbering.
+- Permission evaluation.
+- License validation.
+- Synchronization conflict policies.
+- Import field mapping.
+- Validation rules.
+
+24.2 Integration tests
+
+Test:
+
+- Database transactions.
+- Sales posting.
+- Purchase receiving.
+- Returns.
+- Payments.
+- Accounting integration.
+- Inventory updates.
+- Backup and restore.
+- Import and export.
+- License activation.
+- API authentication.
+- Synchronization.
+
+24.3 End-to-end tests
+
+Test real user workflows:
+
+- First installation.
+- Company creation.
+- User creation.
+- Product creation.
+- Customer creation.
+- Purchase order.
+- Goods receipt.
+- Sales invoice.
+- POS sale.
+- Split payment.
+- Credit sale.
+- Customer payment.
+- Sales return.
+- Purchase return.
+- Inventory transfer.
+- Expense entry.
+- Financial reporting.
+- Invoice printing.
+- Data export.
+- Data import.
+- Offline operation.
+- Synchronization between two devices.
+- License activation and expiration.
+- Permission restrictions.
+- Backup and restore.
+
+24.4 Reliability tests
+
+Test:
+
+- Application crash recovery.
+- Interrupted synchronization.
+- Duplicate requests.
+- Concurrent sales.
+- Database locking.
+- Disk-full conditions.
+- Network loss.
+- Invalid import files.
+- Corrupted transfer packages.
+- Failed database migrations.
+- Clock manipulation.
+- Unauthorized access attempts.
+
+24.5 Regression testing
+
+Every new feature must be tested against related existing features.
+
+Maintain automated regression tests for important workflows.
+
+---
+
+25. PROJECT MANAGEMENT AND REQUIRED DOCUMENTATION
+
+Before implementation, create and maintain the following files:
+
+1. "PROJECT_MASTER_PLAN.md"
+2. "FEATURE_MATRIX.md"
+3. "PROJECT_PROGRESS.md"
+4. "ARCHITECTURE.md"
+5. "DATABASE_SCHEMA.md"
+6. "BUSINESS_RULES.md"
+7. "SECURITY.md"
+8. "THREAT_MODEL.md"
+9. "SYNC_PROTOCOL.md"
+10. "LICENSING_SPECIFICATION.md"
+11. "IMPORT_MIGRATION_SPECIFICATION.md"
+12. "BACKUP_RESTORE_SPECIFICATION.md"
+13. "API_DOCUMENTATION.md"
+14. "UI_DESIGN_SYSTEM.md"
+15. "TEST_PLAN.md"
+16. "BUG_TRACKER.md"
+17. "CHANGELOG.md"
+18. "DECISIONS.md"
+19. "RELEASE_NOTES.md"
+20. "INSTALLATION_GUIDE.md"
+21. "USER_MANUAL.md"
+22. "DISASTER_RECOVERY_GUIDE.md"
+
+These documents must reflect the actual implementation, not imagined future functionality.
+
+25.1 Feature status definitions
+
+Every feature must have one of these statuses:
+
+- Not Started.
+- Analyzed.
+- In Progress.
+- Implemented.
+- Tested.
+- Verified.
+- Released.
+- Blocked.
+
+A feature cannot be marked Verified merely because its UI exists.
+
+A feature is Verified only after its relevant business logic, persistence, permissions, error handling, and tests have been validated.
+
+25.2 Honest progress tracking
+
+Calculate project progress using the feature matrix and evidence.
+
+Separate:
+
+- Analyzed work.
+- Implemented work.
+- Tested work.
+- Verified work.
+- Released work.
+
+Do not report arbitrary percentages.
+
+At every milestone, document:
+
+- Completed features.
+- Remaining features.
+- Tests executed.
+- Test results.
+- Known defects.
+- Security concerns.
+- Architectural decisions.
+- Current blockers.
+- Next implementation tasks.
+
+25.3 Context preservation
+
+At the end of each major development session:
+
+- Update "PROJECT_PROGRESS.md".
+- Update relevant documentation.
+- Record modified files.
+- Record database migration status.
+- Record test results.
+- Record unresolved problems.
+- Record the exact next task.
+
+If context is lost, inspect the project documentation and repository before continuing.
+
+Do not restart the project or recreate existing features unnecessarily.
+
+---
+
+26. REQUIRED IMPLEMENTATION PHASES
+
+Do not attempt to generate the entire application in one unstructured coding pass.
+
+Execute the project in controlled phases.
+
+Phase 0 — Discovery and Technical Specification
+
+- Inspect the current repository.
+- Identify existing code and functionality.
+- Confirm technical constraints.
+- Identify dependencies.
+- Define architecture.
+- Define data ownership.
+- Define synchronization strategy.
+- Define accounting rules.
+- Define licensing architecture.
+- Define security boundaries.
+- Define all modules.
+- Create the required documentation.
+- Build the full feature matrix.
+- Identify risks and unresolved decisions.
+
+Do not begin major feature implementation before completing this phase.
+
+Phase 1 — Foundation
+
+Implement:
+
+- Monorepo.
+- Desktop shell.
+- Application architecture.
+- Design system.
+- Localization.
+- Theme system.
+- Local database.
+- Migration framework.
+- IPC security.
+- Logging.
+- Error handling.
+- Initial authentication.
+- Initial company setup.
+
+Phase 2 — Core Business Data
+
+Implement:
+
+- Companies.
+- Branches.
+- Warehouses.
+- Users.
+- Roles.
+- Permissions.
+- Products.
+- Categories.
+- Customers.
+- Suppliers.
+- Units.
+- Pricing.
+- Initial inventory.
+
+Phase 3 — Business Operations
+
+Implement:
+
+- Purchases.
+- Goods receiving.
+- Sales.
+- POS.
+- Payments.
+- Returns.
+- Cash management.
+- Expenses.
+- Inventory transfers.
+- Approval workflows.
+
+Phase 4 — Accounting
+
+Implement:
+
+- Chart of accounts.
+- Journal engine.
+- Automatic accounting rules.
+- Receivables.
+- Payables.
+- Cash and bank integration.
+- Financial statements.
+- Reconciliation.
+- Period closing.
+
+Do not proceed without validating accounting integrity.
+
+Phase 5 — Reporting and Printing
+
+Implement:
+
+- Dashboard.
+- Reports.
+- Advanced report builder.
+- PDF.
+- Excel.
+- CSV.
+- Thermal printing.
+- Invoice templates.
+- Barcode and QR support.
+
+Phase 6 — Offline and Synchronization
+
+Implement:
+
+- Outbox and inbox.
+- Sync protocol.
+- Device identity.
+- Conflict detection.
+- Conflict resolution.
+- Local network synchronization.
+- Internet synchronization.
+- Transfer-package synchronization.
+- Two-device end-to-end tests.
+
+Phase 7 — Import, Export, and Migration
+
+Implement:
+
+- External database connectors.
+- Schema discovery.
+- Smart mapping.
+- Import preview.
+- Validation.
+- Incremental import.
+- Historical migration.
+- Transfer packages.
+- Export.
+- Backup.
+- Restore.
+- SQL sandbox.
+
+Phase 8 — Licensing and Developer Portal
+
+Implement:
+
+- License model.
+- Cryptographic signatures.
+- Online activation.
+- Offline activation.
+- Device binding.
+- Expiration.
+- Renewal.
+- Revocation.
+- Developer portal.
+- License audit trail.
+
+Phase 9 — Advanced Enterprise Features
+
+Implement:
+
+- HR.
+- Payroll foundation.
+- Advanced approval policies.
+- Budgets.
+- Cost centers.
+- Integrations.
+- Extensibility framework.
+- Advanced analytics.
+- System health tools.
+
+Phase 10 — Security, Reliability, and Optimization
+
+Perform:
+
+- Full security review.
+- Database integrity testing.
+- Performance testing.
+- Memory profiling.
+- Concurrency testing.
+- Offline reliability testing.
+- Recovery testing.
+- Regression testing.
+- Accessibility and keyboard testing.
+- Localization testing.
+
+Phase 11 — Production Release
+
+Prepare:
+
+- Production builds.
+- Windows installer.
+- Application signing where available.
+- License configuration.
+- Initial database creation.
+- Database migration execution.
+- Upgrade process.
+- Offline installation support.
+- Documentation.
+- Release notes.
+- Clean-machine testing.
+
+Each phase must have explicit acceptance criteria before the next phase begins.
+
+---
+
+27. PERFORMANCE AND SCALABILITY REQUIREMENTS
+
+Design the application to handle growing business datasets.
+
+Optimize for:
+
+- Large product catalogs.
+- Large customer databases.
+- Extensive transaction histories.
+- Multiple warehouses.
+- Multiple branches.
+- Large inventory movement histories.
+- Large audit logs.
+- High-volume reports.
+- Multiple concurrent users where the deployment mode supports them.
+
+Implement:
+
+- Database indexing.
+- Query optimization.
+- Pagination.
+- Virtualized tables.
+- Efficient search.
+- Background processing.
+- Batch import.
+- Incremental synchronization.
+- Caching with proper invalidation.
+- Memory management.
+- Resource monitoring.
+
+Never sacrifice data correctness for performance.
+
+Establish measurable performance targets during Phase 0 based on realistic hardware and dataset assumptions.
+
+---
+
+28. USER EXPERIENCE AND OPERATIONAL DETAILS
+
+Provide a professional experience for both technical and non-technical users.
+
+Include:
+
+- First-run setup wizard.
+- Company setup wizard.
+- Guided configuration.
+- Contextual help.
+- Clear validation messages.
+- Action confirmations for destructive operations.
+- Undo where safe and technically valid.
+- Recent activity.
+- Global search.
+- Keyboard shortcuts.
+- Command navigation.
+- Saved filters.
+- Favorite modules.
+- Custom dashboard widgets.
+- Notifications.
+- Helpful empty states.
+- Loading indicators.
+- Recoverable error states.
+
+Avoid overwhelming new users while preserving advanced functionality for experienced administrators.
+
+---
+
+29. INSTALLATION AND DEPLOYMENT
+
+Deliver a Windows desktop installer.
+
+Requirements:
+
+- Professional installer branding.
+- Application version.
+- Installation directory selection.
+- Desktop shortcut.
+- Start menu shortcut.
+- Required runtime handling.
+- Database initialization.
+- License activation entry point.
+- Upgrade support.
+- Uninstallation process.
+- User data preservation options.
+- Offline installation support.
+
+The installer must not silently delete business data during upgrades or uninstallation.
+
+Test on a clean supported Windows environment.
+
+Document supported Windows versions and hardware assumptions.
+
+---
+
+30. FINAL DELIVERY REQUIREMENTS
+
+The project is not complete until the following deliverables exist and are verified.
+
+Source and engineering
+
+- Complete source code.
+- Clean repository structure.
+- Documented architecture.
+- Database migrations.
+- Seed and initial configuration scripts.
+- Backend source.
+- Desktop source.
+- Developer portal source.
+- Shared domain modules.
+- Automated tests.
+- Build scripts.
+- Dependency documentation.
+
+Functional system
+
+- Working Windows desktop application.
+- Functional authentication.
+- Functional company management.
+- Functional inventory.
+- Functional sales.
+- Functional purchases.
+- Functional POS.
+- Functional customer and supplier management.
+- Functional accounting.
+- Functional cash and bank management.
+- Functional reporting.
+- Functional printing.
+- Functional permissions.
+- Functional audit history.
+- Functional offline operation.
+- Functional synchronization.
+- Functional import and export.
+- Functional backup and restore.
+- Functional license activation.
+- Functional developer portal.
+
+Production artifacts
+
+- Windows installer.
+- Production configuration template.
+- Database initialization package.
+- Upgrade and migration scripts.
+- User documentation.
+- Administrator documentation.
+- Developer documentation.
+- Installation guide.
+- Backup and recovery guide.
+- Release notes.
+
+Final acceptance tests
+
+Demonstrate and record evidence of:
+
+1. Clean Windows installation.
+2. First-time company setup.
+3. Valid license activation.
+4. Offline license activation.
+5. Product creation.
+6. Purchase and goods receiving.
+7. POS sale.
+8. Credit sale.
+9. Split payment.
+10. Customer payment.
+11. Sales return.
+12. Inventory reconciliation.
+13. Balanced accounting entries.
+14. Financial statement generation.
+15. Invoice PDF generation.
+16. Thermal receipt printing or verified printer integration.
+17. Data import.
+18. Data export.
+19. Backup creation.
+20. Successful backup restoration.
+21. Synchronization between two separate devices.
+22. Recovery after network interruption.
+23. Duplicate-operation prevention.
+24. Role and permission enforcement.
+25. License expiration handling.
+26. Application update and migration.
+27. Preservation of existing data and functionality.
+
+Provide actual test results and identify any unverified items.
+
+---
+
+31. MANDATORY DEVELOPMENT BEHAVIOR
+
+Follow this execution protocol:
+
+1. Analyze before coding.
+2. Inspect existing files before changing them.
+3. Produce the technical specification.
+4. Establish the architecture.
+5. Create the feature matrix.
+6. Implement in controlled phases.
+7. Test each feature.
+8. Run regression tests.
+9. Update documentation.
+10. Update progress.
+11. Fix discovered defects.
+12. Verify phase acceptance criteria.
+13. Continue to the next phase.
+
+If an important requirement is ambiguous, document the ambiguity and propose a technically justified default. Ask only when a decision materially affects correctness, cost, security, or business behavior.
+
+Do not waste development time repeatedly asking about minor design choices.
+
+Do not generate empty modules simply to make the project appear complete.
+
+Do not leave critical modules as TODO placeholders.
+
+If a feature cannot be completed within the current phase, explicitly mark it Blocked or In Progress and explain why.
+
+If external infrastructure is required, provide the necessary implementation, configuration, and deployment instructions rather than pretending the integration works without it.
+
+---
+
+32. INITIAL RESPONSE AND FIRST ACTION
+
+Begin with Phase 0 — Discovery and Technical Specification.
+
+Your first response must:
+
+1. Confirm that you understand ALFA SOFT as a complete enterprise desktop ERP project.
+2. Inspect the existing project files and repository if provided.
+3. Identify the current development environment and available tools.
+4. Identify existing implemented functionality that must be preserved.
+5. Produce the initial architecture proposal.
+6. Produce the complete feature matrix.
+7. Produce the implementation roadmap.
+8. Identify technical risks and unresolved architectural decisions.
+9. Create the required project documentation.
+10. Define measurable acceptance criteria for Phase 1.
+
+Do not start by generating a few attractive screens and calling the system complete.
+
+Do not skip technical discovery.
+
+Do not silently reduce the scope.
+
+Build ALFA SOFT as a coherent, secure, reliable, fully integrated enterprise product — not as a collection of attractive but disconnected interfaces.
+
+The priority order is:
+
+1. Data integrity.
+2. Business correctness.
+3. Security.
+4. Reliability.
+5. Functional completeness.
+6. Performance.
+7. Maintainability.
+8. User experience.
+9. Visual excellence.
+
+All development decisions must serve these priorities.
