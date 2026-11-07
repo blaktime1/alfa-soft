@@ -32,5 +32,6 @@ class AppColors {
   static const Color success = Color(0xFF10B981); // Emerald 500
   static const Color warning = Color(0xFFF59E0B); // Amber 500
   static const Color danger = Color(0xFFEF4444);  // Rose 500
+  static const Color error = danger;
   static const Color info = Color(0xFF0284C7);    // Sky 600
 }

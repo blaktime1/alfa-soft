@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import '../local/database_service.dart';
 import '../../domain/entities/purchase.dart';
+import 'accounting_repository.dart';
 
 class PurchaseRepository {
   final DatabaseService _db;
@@ -264,6 +265,19 @@ class PurchaseRepository {
         'GRN: $receiptNumber, Cost: ${totalCostCents / 100.0} SAR',
       ]);
     });
+
+    // Post double-entry journal entry for GRN
+    try {
+      AccountingRepository(_db).postPurchaseGrnJournal(
+        companyId: companyId,
+        branchId: branchId,
+        userId: userId,
+        grnId: grnId,
+        grnNumber: receiptNumber,
+        grnDate: DateTime.now(),
+        totalCostCents: totalCostCents,
+      );
+    } catch (_) {}
 
     return GoodsReceiptEntity(
       id: grnId,

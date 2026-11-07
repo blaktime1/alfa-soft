@@ -10,6 +10,7 @@ import '../purchases/purchases_screen.dart';
 import '../partners/partners_screen.dart';
 import '../organization/organization_screen.dart';
 import '../users/users_screen.dart';
+import '../accounting/accounting_screen.dart';
 
 enum ShellNavSection {
   dashboard,
@@ -256,11 +257,7 @@ class _MainShellState extends ConsumerState<MainShell> {
       case ShellNavSection.purchases:
         return const PurchasesScreen();
       case ShellNavSection.accounting:
-        return _PlaceholderSection(
-          title: 'المحاسبة العامة وشجرة الحسابات',
-          icon: Icons.account_balance_rounded,
-          description: 'دليل الحسابات، قيود اليومية الآلية، موازين المراجعة، وقائمة الدخل',
-        );
+        return const AccountingScreen();
       case ShellNavSection.customers:
         return const PartnersScreen();
       case ShellNavSection.settings:
@@ -365,53 +362,6 @@ class _SettingsContainerState extends State<_SettingsContainer> with SingleTicke
           ),
         ),
       ],
-    );
-  }
-}
-
-class _PlaceholderSection extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final String description;
-
-  const _PlaceholderSection({
-    required this.title,
-    required this.icon,
-    required this.description,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppColors.brandAccent.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 56, color: AppColors.brandAccent),
-            ),
-            const SizedBox(height: 16),
-            Text(title, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: Text(
-                description,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

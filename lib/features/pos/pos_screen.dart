@@ -280,6 +280,24 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         ]);
       });
 
+      // Post double-entry journal entry for POS sales invoice
+      final totalCost = _cart.fold(0, (sum, i) => sum + (i.costPriceCents * i.quantity));
+      try {
+        ref.read(accountingRepositoryProvider).postSalesInvoiceJournal(
+          companyId: companyId,
+          branchId: branchId,
+          userId: userId,
+          invoiceId: invoiceId,
+          invoiceNumber: invoiceNumber,
+          invoiceDate: DateTime.now(),
+          subtotalCents: _subtotalCents,
+          taxCents: _taxCents,
+          grandTotalCents: _grandTotalCents,
+          totalCostCents: totalCost,
+          isCash: true,
+        );
+      } catch (_) {}
+
       setState(() {
         _cart.clear();
         _isProcessing = false;

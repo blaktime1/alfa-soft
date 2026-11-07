@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/local/database_service.dart';
+import '../../data/repositories/accounting_repository.dart';
 
 /// Database service provider initialized at boot
 final databaseServiceProvider = Provider<DatabaseService>((ref) {
   throw UnimplementedError('DatabaseService must be initialized in main()');
 });
+
+final accountingRepositoryProvider = Provider<AccountingRepository>((ref) {
+  return AccountingRepository(ref.watch(databaseServiceProvider));
+});
+
 
 /// Theme Mode Provider (Light / Dark)
 final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) {
