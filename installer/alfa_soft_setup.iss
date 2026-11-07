@@ -24,6 +24,7 @@ DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE.txt
 OutputDir=..\dist
 OutputBaseFilename=AlfaSoft-Setup-1.0.0-x64
+SetupIconFile=app_icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

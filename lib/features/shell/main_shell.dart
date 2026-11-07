@@ -83,13 +83,22 @@ class _MainShellState extends ConsumerState<MainShell> {
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.brandAccent,
-                      borderRadius: BorderRadius.circular(8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset(
+                      'assets/images/app_logo.png',
+                      width: 36,
+                      height: 36,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandAccent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.blur_on_rounded, color: Colors.white, size: 24),
+                      ),
                     ),
-                    child: const Icon(Icons.blur_on_rounded, color: Colors.white, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Column(

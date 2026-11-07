@@ -161,14 +161,23 @@ class _FirstRunWizardState extends ConsumerState<FirstRunWizard> {
                       // Header
                       Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppColors.brandAccent.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.asset(
+                              'assets/images/app_logo.png',
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.brandAccent.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.corporate_fare_rounded,
+                                    color: AppColors.brandAccent, size: 36),
+                              ),
                             ),
-                            child: const Icon(Icons.corporate_fare_rounded,
-                                color: AppColors.brandAccent, size: 36),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
