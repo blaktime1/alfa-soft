@@ -13,6 +13,7 @@ import '../users/users_screen.dart';
 import '../accounting/accounting_screen.dart';
 import '../reports/reports_screen.dart';
 import '../sync/sync_screen.dart';
+import '../migration/migration_screen.dart';
 
 enum ShellNavSection {
   dashboard,
@@ -345,7 +346,7 @@ class _SettingsContainerState extends State<_SettingsContainer> with SingleTicke
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -365,6 +366,7 @@ class _SettingsContainerState extends State<_SettingsContainer> with SingleTicke
             tabs: const [
               Tab(icon: Icon(Icons.business_rounded), text: 'الهيكل التنظيمي والفروع'),
               Tab(icon: Icon(Icons.manage_accounts_rounded), text: 'المستخدمون والصلاحيات'),
+              Tab(icon: Icon(Icons.upload_file_rounded), text: 'مركز استيراد وترحيل البيانات'),
             ],
           ),
         ),
@@ -374,6 +376,7 @@ class _SettingsContainerState extends State<_SettingsContainer> with SingleTicke
             children: const [
               OrganizationScreen(),
               UsersScreen(),
+              MigrationScreen(),
             ],
           ),
         ),
