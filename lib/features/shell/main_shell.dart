@@ -5,6 +5,8 @@ import '../../core/theme/app_colors.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../pos/pos_screen.dart';
 import '../inventory/products_screen.dart';
+import '../inventory/stock_transfers_screen.dart';
+import '../purchases/purchases_screen.dart';
 import '../partners/partners_screen.dart';
 import '../organization/organization_screen.dart';
 import '../users/users_screen.dart';
@@ -13,6 +15,7 @@ enum ShellNavSection {
   dashboard,
   pos,
   inventory,
+  purchases,
   accounting,
   customers,
   settings,
@@ -117,6 +120,10 @@ class _MainShellState extends ConsumerState<MainShell> {
               NavigationRailDestination(
                 icon: Icon(Icons.inventory_2_rounded),
                 label: Text('المخزون والمستودعات'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.shopping_bag_rounded),
+                label: Text('المشتريات والتوريد'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.account_balance_rounded),
@@ -245,7 +252,9 @@ class _MainShellState extends ConsumerState<MainShell> {
       case ShellNavSection.pos:
         return const SizedBox.shrink(); // Handled in build
       case ShellNavSection.inventory:
-        return const ProductsScreen();
+        return const _InventoryContainer();
+      case ShellNavSection.purchases:
+        return const PurchasesScreen();
       case ShellNavSection.accounting:
         return _PlaceholderSection(
           title: 'المحاسبة العامة وشجرة الحسابات',
@@ -257,6 +266,56 @@ class _MainShellState extends ConsumerState<MainShell> {
       case ShellNavSection.settings:
         return const _SettingsContainer();
     }
+  }
+}
+
+class _InventoryContainer extends StatefulWidget {
+  const _InventoryContainer();
+
+  @override
+  State<_InventoryContainer> createState() => _InventoryContainerState();
+}
+
+class _InventoryContainerState extends State<_InventoryContainer> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          color: Theme.of(context).colorScheme.surface,
+          child: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(icon: Icon(Icons.inventory_2_rounded), text: 'كتالوج الأصناف والأسعار'),
+              Tab(icon: Icon(Icons.swap_horiz_rounded), text: 'التحويلات والتسويات المخزنية'),
+            ],
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: const [
+              ProductsScreen(),
+              StockTransfersScreen(),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 

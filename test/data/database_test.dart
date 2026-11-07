@@ -46,11 +46,19 @@ void main() {
         'journal_entries',
         'journal_lines',
         'sync_outbox',
+        'purchase_orders',
+        'purchase_order_items',
+        'goods_receipt_notes',
+        'goods_receipt_items',
+        'stock_transfers',
+        'stock_transfer_items',
+        'stock_adjustments',
+        'pos_suspended_sales',
       ]));
 
-      // Verify migration table recorded all 3 migrations
+      // Verify migration table recorded all 4 migrations
       final migrations = dbService.select('SELECT version FROM schema_migrations ORDER BY version ASC');
-      expect(migrations.length, equals(3));
+      expect(migrations.length, equals(4));
     });
 
     test('Foreign key constraints are strictly enforced', () {
