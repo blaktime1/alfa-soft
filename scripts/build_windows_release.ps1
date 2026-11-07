@@ -1,9 +1,9 @@
 # ==============================================================================
-# ALFA SOFT — Production Windows Release Build Script
+# ALFA SOFT - Production Windows Release Build Script
 # ==============================================================================
 
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host " ALFA SOFT — Windows Desktop Native Release Compiler" -ForegroundColor Cyan
+Write-Host " ALFA SOFT - Windows Desktop Native Release Compiler" -ForegroundColor Cyan
 Write-Host "=================================================================" -ForegroundColor Cyan
 
 # 1. Clean previous build artifacts
@@ -27,7 +27,8 @@ Write-Host "[4/4] Compiling native Windows C++ Release binary..." -ForegroundCol
 flutter build windows --release
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "`nBUILD SUCCESSFUL!" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "BUILD SUCCESSFUL!" -ForegroundColor Green
     Write-Host "Release output directory: build\windows\x64\runner\Release" -ForegroundColor Green
     Write-Host "Ready for Inno Setup compiler: iscc installer\alfa_soft_setup.iss" -ForegroundColor Cyan
 } else {
