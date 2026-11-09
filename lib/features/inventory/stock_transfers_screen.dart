@@ -8,6 +8,7 @@ import '../../data/repositories/catalog_repository.dart';
 import '../../domain/entities/inventory_operation.dart';
 import '../../domain/entities/organization.dart';
 import '../../domain/entities/catalog.dart';
+import '../../core/math/bankers_rounding.dart';
 
 class StockTransfersScreen extends ConsumerStatefulWidget {
   const StockTransfersScreen({super.key});
@@ -75,6 +76,12 @@ class _StockTransfersScreenState extends ConsumerState<StockTransfersScreen> wit
     String toWhId = _warehouses[1].id;
     String productId = _products.first.id;
     final qtyController = TextEditingController(text: '5');
+    bool transferByCarton = false;
+
+    final db = ref.read(databaseServiceProvider);
+    final catalogRepo = CatalogRepository(db);
+    final initialProd = _products.firstWhere((p) => p.id == productId);
+    final destPriceController = TextEditingController(text: initialProd.salePrice.toStringAsFixed(2));
 
     showDialog(
       context: context,
@@ -82,64 +89,175 @@ class _StockTransfersScreenState extends ConsumerState<StockTransfersScreen> wit
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final currentProd = _products.firstWhere((p) => p.id == productId, orElse: () => _products.first);
+            final int enteredQty = int.tryParse(qtyController.text) ?? 1;
+            final int totalPieces = (transferByCarton && currentProd.hasCarton)
+                ? enteredQty * currentProd.unitsPerCarton
+                : enteredQty;
+
             return AlertDialog(
-              title: const Text('تحويل مخزني بين المستودعات', style: TextStyle(fontWeight: FontWeight.bold)),
+              backgroundColor: AppColors.lightBgSurface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.swap_horiz_rounded, color: AppColors.brandPrimary),
+                  SizedBox(width: 8),
+                  Text('تحويل مخزني بين المستودعات وتسعير الوجهة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
               content: SizedBox(
-                width: 480,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('رقم التحويل: $transferNumber', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: fromWhId,
-                            decoration: const InputDecoration(labelText: 'من مستودع (المصدر) *'),
-                            items: _warehouses.map((w) => DropdownMenuItem(value: w.id, child: Text(w.name))).toList(),
-                            onChanged: (v) => setDialogState(() => fromWhId = v!),
-                          ),
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandPrimary.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: toWhId,
-                            decoration: const InputDecoration(labelText: 'إلى مستودع (الوجهة) *'),
-                            items: _warehouses.map((w) => DropdownMenuItem(value: w.id, child: Text(w.name))).toList(),
-                            onChanged: (v) => setDialogState(() => toWhId = v!),
-                          ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.confirmation_number_outlined, size: 18, color: AppColors.brandPrimary),
+                            const SizedBox(width: 8),
+                            Text('رقم التحويل: $transferNumber', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: productId,
-                      decoration: const InputDecoration(labelText: 'الصنف المحول *'),
-                      items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr))).toList(),
-                      onChanged: (v) => setDialogState(() => productId = v!),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: qtyController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'الكمية المحولة *'),
-                    ),
-                  ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: fromWhId,
+                              decoration: const InputDecoration(labelText: 'من مستودع (المصدر) *'),
+                              items: _warehouses.map((w) => DropdownMenuItem(value: w.id, child: Text(w.name))).toList(),
+                              onChanged: (v) => setDialogState(() => fromWhId = v!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: toWhId,
+                              decoration: const InputDecoration(labelText: 'إلى مستودع (الوجهة) *'),
+                              items: _warehouses.map((w) => DropdownMenuItem(value: w.id, child: Text(w.name))).toList(),
+                              onChanged: (v) {
+                                setDialogState(() {
+                                  toWhId = v!;
+                                  final eff = catalogRepo.getEffectivePrices(productId: productId, warehouseId: toWhId);
+                                  destPriceController.text = ((eff['sale_price'] ?? 0) / 100.0).toStringAsFixed(2);
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: productId,
+                        decoration: const InputDecoration(labelText: 'الصنف المحول *'),
+                        items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text('${p.nameAr} (${p.sku})'))).toList(),
+                        onChanged: (v) {
+                          setDialogState(() {
+                            productId = v!;
+                            final p = _products.firstWhere((item) => item.id == productId);
+                            final eff = catalogRepo.getEffectivePrices(productId: productId, warehouseId: toWhId);
+                            destPriceController.text = ((eff['sale_price'] ?? 0) / 100.0).toStringAsFixed(2);
+                            if (!p.hasCarton) transferByCarton = false;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextFormField(
+                              controller: qtyController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: transferByCarton ? 'عدد الكراتين المحولة *' : 'عدد الحبات المحولة *',
+                              ),
+                              onChanged: (_) => setDialogState(() {}),
+                            ),
+                          ),
+                          if (currentProd.hasCarton) ...[
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 3,
+                              child: ChoiceChip(
+                                label: Text(
+                                  transferByCarton
+                                      ? 'بالكرتون (${currentProd.unitsPerCarton} حبة/كرتون)'
+                                      : 'بالحبة الفردية',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: transferByCarton ? AppColors.brandPrimary : AppColors.lightTextPrimary,
+                                  ),
+                                ),
+                                selected: transferByCarton,
+                                onSelected: (sel) => setDialogState(() => transferByCarton = sel),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.inventory_2_rounded, size: 16, color: AppColors.success),
+                            const SizedBox(width: 8),
+                            Text(
+                              'إجمالي الكمية المنقولة فعلياً للمستودع: $totalPieces حبة',
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.successText),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const Text(
+                        'تسعير الصنف في مستودع الوجهة (اختياري)',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandPrimary),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'إذا رغبت بالبيع في المستودع المنقول إليه بسعر أعلى أو مختلف، حدد السعر هنا:',
+                        style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: destPriceController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'سعر بيع التجزئة في مستودع الوجهة (SAR)',
+                          prefixIcon: Icon(Icons.price_change_rounded, color: AppColors.brandGoldDark),
+                          suffixText: 'SAR',
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
                 ElevatedButton(
                   onPressed: () {
-                    final qty = int.tryParse(qtyController.text) ?? 1;
-                    final db = ref.read(databaseServiceProvider);
                     final repo = InventoryOperationRepository(db);
                     final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
                     final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
                     final prod = _products.firstWhere((p) => p.id == productId);
 
                     try {
+                      // 1. Perform stock transfer with totalPieces
                       repo.transferStock(
                         companyId: companyId,
                         fromWarehouseId: fromWhId,
@@ -149,18 +267,32 @@ class _StockTransfersScreenState extends ConsumerState<StockTransfersScreen> wit
                         items: [
                           {
                             'productId': productId,
-                            'quantity': qty,
+                            'quantity': totalPieces,
                             'unitCostCents': prod.costPriceCents,
                           }
                         ],
                       );
+
+                      // 2. If destination price was specified, save warehouse price override
+                      final destPriceD = double.tryParse(destPriceController.text.trim());
+                      if (destPriceD != null && destPriceD > 0) {
+                        catalogRepo.setWarehousePrice(
+                          warehouseId: toWhId,
+                          productId: productId,
+                          salePriceCents: BankersRounding.toMinorUnits(destPriceD),
+                        );
+                      }
+
                       Navigator.pop(ctx);
                       _loadData();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('تم التحويل المخزني وتحديث تسعير الوجهة بنجاح!'), backgroundColor: AppColors.success),
+                      );
                     } catch (e) {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e')));
                     }
                   },
-                  child: const Text('تأكيد التحويل المخزني'),
+                  child: const Text('تأكيد التحويل والتسعير'),
                 ),
               ],
             );

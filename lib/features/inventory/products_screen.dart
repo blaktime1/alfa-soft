@@ -7,7 +7,9 @@ import '../../core/providers/app_state_provider.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/catalog_repository.dart';
+import '../../data/repositories/organization_repository.dart';
 import '../../domain/entities/catalog.dart';
+import '../../domain/entities/organization.dart';
 
 class ProductsScreen extends ConsumerStatefulWidget {
   const ProductsScreen({super.key});
@@ -21,6 +23,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
   List<ProductEntity> _products = [];
   List<CategoryEntity> _categories = [];
   List<UnitEntity> _units = [];
+  List<WarehouseEntity> _warehouses = [];
   String? _selectedCategoryId;
   bool _isLoading = true;
 
@@ -39,6 +42,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
   void _loadData() {
     final db = ref.read(databaseServiceProvider);
     final repo = CatalogRepository(db);
+    final orgRepo = OrganizationRepository(db);
 
     try {
       final compResult = db.select('SELECT id FROM companies LIMIT 1');
@@ -51,6 +55,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
           query: _searchController.text,
           categoryId: _selectedCategoryId,
         );
+
+        final branches = orgRepo.getBranches(companyId);
+        _warehouses = [];
+        for (final b in branches) {
+          _warehouses.addAll(orgRepo.getWarehouses(b.id));
+        }
       }
     } catch (_) {
       // Handle gracefully
@@ -69,6 +79,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     final salePriceController = TextEditingController(text: '0.00');
     final minPriceController = TextEditingController(text: '0.00');
     final reorderLevelController = TextEditingController(text: '10');
+
+    bool hasCartonPackaging = false;
+    final unitsPerCartonController = TextEditingController(text: '12');
+    final cartonPriceController = TextEditingController();
+    final cartonCostPriceController = TextEditingController();
+    final cartonBarcodeController = TextEditingController();
 
     String? categoryId = _categories.isNotEmpty ? _categories.first.id : null;
     String baseUnitId = _units.isNotEmpty ? _units.first.id : 'unit_pcs';
@@ -90,7 +106,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                 ],
               ),
               content: SizedBox(
-                width: 600,
+                width: 620,
                 child: Form(
                   key: formKey,
                   child: SingleChildScrollView(
@@ -150,7 +166,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                         ),
                         const SizedBox(height: 16),
                         const Divider(),
-                        const Text('هيكل الأسعار والتكلفة', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandPrimary)),
+                        const Text('هيكل الأسعار والتكلفة (للحبة / الوحدة الأساسية)', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandPrimary)),
                         const SizedBox(height: 10),
                         Row(
                           children: [
@@ -193,6 +209,94 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 14),
+
+                        // Multi-unit Packaging (Carton vs Piece) Container
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandPrimary.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.brandPrimary.withValues(alpha: 0.2)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.all_inbox_rounded, color: AppColors.brandPrimary, size: 20),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'نظام البيع بالكرتون والحبة (اختياري)',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandPrimary),
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: hasCartonPackaging,
+                                    activeThumbColor: AppColors.brandPrimary,
+                                    onChanged: (val) => setDialogState(() => hasCartonPackaging = val),
+                                  ),
+                                ],
+                              ),
+                              if (hasCartonPackaging) ...[
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: unitsPerCartonController,
+                                        keyboardType: TextInputType.number,
+                                        decoration: const InputDecoration(
+                                          labelText: 'الكرتون كم فيه حبة؟ *',
+                                          hintText: 'مثال: 12 أو 24',
+                                          prefixIcon: Icon(Icons.numbers_rounded, size: 18),
+                                        ),
+                                        validator: (v) => hasCartonPackaging && (int.tryParse(v ?? '') ?? 0) <= 1 ? 'أدخل عدداً أكبر من 1' : null,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: cartonPriceController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: const InputDecoration(
+                                          labelText: 'سعر بيع الكرتون (SAR)',
+                                          hintText: 'اتركه فارغاً للحساب التلقائي',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: cartonCostPriceController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: const InputDecoration(
+                                          labelText: 'سعر شراء الكرتون (SAR)',
+                                          hintText: 'اتركه فارغاً للحساب التلقائي',
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: cartonBarcodeController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'باركود الكرتون (اختياري)',
+                                          prefixIcon: Icon(Icons.qr_code_2_rounded, size: 18),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -216,6 +320,13 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                     final minDouble = double.tryParse(minPriceController.text.trim()) ?? 0.0;
                     final reorderInt = int.tryParse(reorderLevelController.text.trim()) ?? 10;
 
+                    final int unitsPerCarton = hasCartonPackaging ? (int.tryParse(unitsPerCartonController.text.trim()) ?? 1) : 1;
+                    final double cartonPriceD = hasCartonPackaging ? (double.tryParse(cartonPriceController.text.trim()) ?? 0.0) : 0.0;
+                    final double cartonCostD = hasCartonPackaging ? (double.tryParse(cartonCostPriceController.text.trim()) ?? 0.0) : 0.0;
+                    final String? cartonBarcode = hasCartonPackaging && cartonBarcodeController.text.trim().isNotEmpty
+                        ? cartonBarcodeController.text.trim()
+                        : null;
+
                     repo.createProduct(
                       companyId: companyId,
                       sku: skuController.text.trim(),
@@ -228,6 +339,10 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                       salePriceCents: BankersRounding.toMinorUnits(saleDouble),
                       minSalePriceCents: BankersRounding.toMinorUnits(minDouble),
                       reorderLevel: reorderInt,
+                      unitsPerCarton: unitsPerCarton,
+                      cartonPriceCents: BankersRounding.toMinorUnits(cartonPriceD),
+                      cartonCostPriceCents: BankersRounding.toMinorUnits(cartonCostD),
+                      cartonBarcode: cartonBarcode,
                     );
 
                     Navigator.pop(ctx);
@@ -388,6 +503,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     final minPriceController = TextEditingController(text: product.minSalePrice.toStringAsFixed(2));
     final reorderLevelController = TextEditingController(text: product.reorderLevel.toString());
 
+    bool hasCartonPackaging = product.hasCarton;
+    final unitsPerCartonController = TextEditingController(text: product.unitsPerCarton > 1 ? product.unitsPerCarton.toString() : '12');
+    final cartonPriceController = TextEditingController(text: product.cartonPriceCents > 0 ? (product.cartonPriceCents / 100.0).toStringAsFixed(2) : '');
+    final cartonCostPriceController = TextEditingController(text: product.cartonCostPriceCents > 0 ? (product.cartonCostPriceCents / 100.0).toStringAsFixed(2) : '');
+    final cartonBarcodeController = TextEditingController(text: product.cartonBarcode ?? '');
+
     String? categoryId = product.categoryId;
     String baseUnitId = product.baseUnitId;
     bool isActive = product.isActive;
@@ -409,7 +530,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                 ],
               ),
               content: SizedBox(
-                width: 600,
+                width: 620,
                 child: Form(
                   key: formKey,
                   child: SingleChildScrollView(
@@ -535,6 +656,94 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 14),
+
+                        // Multi-unit Packaging (Carton vs Piece) Container
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandPrimary.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.brandPrimary.withValues(alpha: 0.2)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.all_inbox_rounded, color: AppColors.brandPrimary, size: 20),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'نظام البيع بالكرتون والحبة (اختياري)',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandPrimary),
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: hasCartonPackaging,
+                                    activeThumbColor: AppColors.brandPrimary,
+                                    onChanged: (val) => setDialogState(() => hasCartonPackaging = val),
+                                  ),
+                                ],
+                              ),
+                              if (hasCartonPackaging) ...[
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: unitsPerCartonController,
+                                        keyboardType: TextInputType.number,
+                                        decoration: const InputDecoration(
+                                          labelText: 'الكرتون كم فيه حبة؟ *',
+                                          hintText: 'مثال: 12 أو 24',
+                                          prefixIcon: Icon(Icons.numbers_rounded, size: 18),
+                                        ),
+                                        validator: (v) => hasCartonPackaging && (int.tryParse(v ?? '') ?? 0) <= 1 ? 'أدخل عدداً أكبر من 1' : null,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: cartonPriceController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: const InputDecoration(
+                                          labelText: 'سعر بيع الكرتون (SAR)',
+                                          hintText: 'اتركه فارغاً للحساب التلقائي',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: cartonCostPriceController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: const InputDecoration(
+                                          labelText: 'سعر شراء الكرتون (SAR)',
+                                          hintText: 'اتركه فارغاً للحساب التلقائي',
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: cartonBarcodeController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'باركود الكرتون (اختياري)',
+                                          prefixIcon: Icon(Icons.qr_code_2_rounded, size: 18),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                         const SizedBox(height: 12),
                         SwitchListTile(
                           title: const Text('حالة الصنف في المنظومة (نشط للبيع)'),
@@ -588,6 +797,13 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                     final minDouble = double.tryParse(minPriceController.text.trim()) ?? 0.0;
                     final reorderInt = int.tryParse(reorderLevelController.text.trim()) ?? 10;
 
+                    final int unitsPerCarton = hasCartonPackaging ? (int.tryParse(unitsPerCartonController.text.trim()) ?? 1) : 1;
+                    final double cartonPriceD = hasCartonPackaging ? (double.tryParse(cartonPriceController.text.trim()) ?? 0.0) : 0.0;
+                    final double cartonCostD = hasCartonPackaging ? (double.tryParse(cartonCostPriceController.text.trim()) ?? 0.0) : 0.0;
+                    final String? cartonBarcode = hasCartonPackaging && cartonBarcodeController.text.trim().isNotEmpty
+                        ? cartonBarcodeController.text.trim()
+                        : null;
+
                     repo.updateProduct(
                       id: product.id,
                       nameAr: nameArController.text.trim(),
@@ -600,6 +816,10 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                       categoryId: categoryId,
                       baseUnitId: baseUnitId,
                       isActive: isActive,
+                      unitsPerCarton: unitsPerCarton,
+                      cartonPriceCents: BankersRounding.toMinorUnits(cartonPriceD),
+                      cartonCostPriceCents: BankersRounding.toMinorUnits(cartonCostD),
+                      cartonBarcode: cartonBarcode,
                       modifiedBy: currentUser?.username ?? 'ADMIN',
                     );
 
@@ -616,6 +836,137 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
           },
         );
       },
+    );
+  }
+
+  /// Dialog to set warehouse-specific price overrides (e.g. Higher price in Warehouse 2)
+  void _showWarehousePricingDialog(ProductEntity product) {
+    if (_warehouses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا توجد مستودعات مسجلة في الفرع لتخصيص الأسعار')),
+      );
+      return;
+    }
+
+    final db = ref.read(databaseServiceProvider);
+    final repo = CatalogRepository(db);
+    final whPrices = repo.getWarehousePrices(product.id);
+    final controllers = <String, TextEditingController>{};
+
+    for (final wh in _warehouses) {
+      final existing = whPrices.firstWhere(
+        (p) => p['warehouse_id'] == wh.id,
+        orElse: () => <String, dynamic>{},
+      );
+      final currentSale = existing.isNotEmpty
+          ? ((existing['sale_price'] as int) / 100.0).toStringAsFixed(2)
+          : product.salePrice.toStringAsFixed(2);
+      controllers[wh.id] = TextEditingController(text: currentSale);
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.lightBgSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.storefront_rounded, color: AppColors.brandGoldDark),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'تسعير خاص للمخازن والفروع: ${product.nameAr}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPrimary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline_rounded, color: AppColors.brandPrimary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'السعر الأساسي المعتمد في المنظومة: ${product.salePrice.toStringAsFixed(2)} SAR. يمكنك تحديد سعر مختلف لكل مستودع (مثلاً بيع في مخزن 2 بسعر أعلى).',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ..._warehouses.map((wh) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(wh.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              Text('كود المستودع: ${wh.code}', style: const TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: TextFormField(
+                            controller: controllers[wh.id],
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: const InputDecoration(
+                              labelText: 'سعر البيع',
+                              suffixText: 'SAR',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () {
+              for (final wh in _warehouses) {
+                final text = controllers[wh.id]?.text.trim() ?? '';
+                final priceDouble = double.tryParse(text);
+                if (priceDouble != null && priceDouble > 0) {
+                  repo.setWarehousePrice(
+                    warehouseId: wh.id,
+                    productId: product.id,
+                    salePriceCents: BankersRounding.toMinorUnits(priceDouble),
+                  );
+                }
+              }
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('تم حفظ وتحديث أسعار المخازن بنجاح!'), backgroundColor: AppColors.success),
+              );
+            },
+            child: const Text('حفظ أسعار المخازن'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -763,6 +1114,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                             DataColumn(label: Text('SKU / كود')),
                             DataColumn(label: Text('الباركود')),
                             DataColumn(label: Text('اسم الصنف')),
+                            DataColumn(label: Text('التعبئة والكرتون')),
                             DataColumn(label: Text('سعر الشراء (التكلفة)')),
                             DataColumn(label: Text('سعر البيع (تجزئة)')),
                             DataColumn(label: Text('أدنى سعر (جملة)')),
@@ -775,6 +1127,15 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               DataCell(Text(p.sku, style: const TextStyle(fontWeight: FontWeight.bold))),
                               DataCell(Text(p.barcode ?? '—')),
                               DataCell(Text(p.nameAr)),
+                              DataCell(
+                                p.hasCarton
+                                    ? Chip(
+                                        label: Text('كرتون (${p.unitsPerCarton} حبة)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                        backgroundColor: AppColors.brandPrimary.withValues(alpha: 0.12),
+                                        side: BorderSide.none,
+                                      )
+                                    : const Text('حبة فقط', style: TextStyle(color: AppColors.lightTextSecondary, fontSize: 12)),
+                              ),
                               DataCell(
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -800,6 +1161,11 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.storefront_rounded, size: 18, color: AppColors.brandGoldDark),
+                                      tooltip: 'تسعير مخصص للمخازن والفروع',
+                                      onPressed: () => _showWarehousePricingDialog(p),
+                                    ),
                                     IconButton(
                                       icon: const Icon(Icons.edit_rounded, size: 18, color: AppColors.brandPrimary),
                                       tooltip: 'تعديل الصنف والأسعار',

@@ -15,7 +15,10 @@ class CartItem {
   final int retailPriceCents;
   final int wholesalePriceCents;
   final int costPriceCents;
+  final int unitsPerCarton;
+  final int cartonPriceCents;
   bool isWholesale;
+  bool isCarton;
   int quantity;
 
   CartItem({
@@ -25,12 +28,30 @@ class CartItem {
     required this.retailPriceCents,
     required this.wholesalePriceCents,
     required this.costPriceCents,
+    this.unitsPerCarton = 1,
+    this.cartonPriceCents = 0,
     this.isWholesale = false,
+    this.isCarton = false,
     this.quantity = 1,
   });
 
-  int get unitPriceCents => (isWholesale && wholesalePriceCents > 0) ? wholesalePriceCents : retailPriceCents;
+  bool get hasCarton => unitsPerCarton > 1;
+
+  int get unitPriceCents {
+    if (isCarton) {
+      if (cartonPriceCents > 0) {
+        return cartonPriceCents;
+      }
+      final base = (isWholesale && wholesalePriceCents > 0) ? wholesalePriceCents : retailPriceCents;
+      return base * unitsPerCarton;
+    }
+    return (isWholesale && wholesalePriceCents > 0) ? wholesalePriceCents : retailPriceCents;
+  }
+
   int get totalCents => unitPriceCents * quantity;
+
+  /// Quantity in base inventory pieces deducted from stock
+  int get inventoryPieces => isCarton ? (quantity * unitsPerCarton) : quantity;
 }
 
 class PosScreen extends ConsumerStatefulWidget {
@@ -48,6 +69,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
   final List<CartItem> _cart = [];
   List<Map<String, dynamic>> _quickProducts = [];
+  List<Map<String, dynamic>> _warehouses = [];
+  String _selectedWarehouseId = '';
   bool _isProcessing = false;
   String? _lastMessage;
 
@@ -55,6 +78,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   void initState() {
     super.initState();
     _loadSampleProductsIfEmpty();
+    _loadWarehouses();
     _loadCatalog();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _barcodeFocusNode.requestFocus();
@@ -66,6 +90,28 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     _barcodeFocusNode.dispose();
     _barcodeController.dispose();
     super.dispose();
+  }
+
+  void _loadWarehouses() {
+    final db = ref.read(databaseServiceProvider);
+    try {
+      final compResult = db.select('SELECT id FROM companies LIMIT 1');
+      if (compResult.isNotEmpty) {
+        final companyId = compResult.first['id'] as String;
+        final whRows = db.select('''
+          SELECT w.id, w.name, w.code, b.name as branch_name 
+          FROM warehouses w
+          JOIN branches b ON b.id = w.branch_id
+          WHERE b.company_id = ?
+          ORDER BY w.code ASC
+        ''', [companyId]);
+
+        _warehouses = whRows.map((r) => Map<String, dynamic>.from(r)).toList();
+        if (_warehouses.isNotEmpty && _selectedWarehouseId.isEmpty) {
+          _selectedWarehouseId = _warehouses.first['id'] as String;
+        }
+      }
+    } catch (_) {}
   }
 
   void _loadSampleProductsIfEmpty() {
@@ -99,12 +145,25 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
   void _loadCatalog() {
     final db = ref.read(databaseServiceProvider);
+    if (_selectedWarehouseId.isEmpty && _warehouses.isNotEmpty) {
+      _selectedWarehouseId = _warehouses.first['id'] as String;
+    }
+
     final result = db.select('''
-      SELECT id, sku, barcode, name_ar, sale_price, min_sale_price, cost_price 
-      FROM products 
-      WHERE is_active = 1 
-      LIMIT 20
-    ''');
+      SELECT p.id, p.sku, p.barcode, p.name_ar, p.sale_price, p.min_sale_price, p.cost_price,
+             p.units_per_carton, p.carton_price, p.carton_cost_price, p.carton_barcode,
+             COALESCE(ib.quantity, 0) as stock_qty,
+             wpp.sale_price as wh_sale_price,
+             wpp.wholesale_price as wh_wholesale_price,
+             wpp.carton_price as wh_carton_price
+      FROM products p
+      LEFT JOIN inventory_balances ib ON ib.product_id = p.id AND ib.warehouse_id = ?
+      LEFT JOIN warehouse_product_prices wpp ON wpp.product_id = p.id AND wpp.warehouse_id = ?
+      WHERE p.is_active = 1 
+      ORDER BY p.name_ar ASC
+      LIMIT 24
+    ''', [_selectedWarehouseId, _selectedWarehouseId]);
+
     setState(() {
       _quickProducts = result.map((r) => Map<String, dynamic>.from(r)).toList();
     });
@@ -116,14 +175,21 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
     final db = ref.read(databaseServiceProvider);
     final match = db.select('''
-      SELECT id, sku, barcode, name_ar, sale_price, min_sale_price, cost_price 
-      FROM products 
-      WHERE barcode = ? OR sku = ? OR name_ar LIKE ? 
+      SELECT p.id, p.sku, p.barcode, p.name_ar, p.sale_price, p.min_sale_price, p.cost_price,
+             p.units_per_carton, p.carton_price, p.carton_cost_price, p.carton_barcode,
+             wpp.sale_price as wh_sale_price,
+             wpp.wholesale_price as wh_wholesale_price,
+             wpp.carton_price as wh_carton_price
+      FROM products p
+      LEFT JOIN warehouse_product_prices wpp ON wpp.product_id = p.id AND wpp.warehouse_id = ?
+      WHERE p.is_active = 1 AND (p.barcode = ? OR p.carton_barcode = ? OR p.sku = ? OR p.name_ar LIKE ?)
       LIMIT 1
-    ''', [query, query, '%$query%']);
+    ''', [_selectedWarehouseId, query, query, query, '%$query%']);
 
     if (match.isNotEmpty) {
-      _addItemToCart(match.first);
+      final p = match.first;
+      final isCartonBarcode = (p['carton_barcode'] as String?)?.trim() == query;
+      _addItemToCart(p, addAsCarton: isCartonBarcode);
     } else {
       setState(() => _lastMessage = 'لم يتم العثور على الصنف: $query');
     }
@@ -132,26 +198,35 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     _barcodeFocusNode.requestFocus();
   }
 
-  void _addItemToCart(Map<String, dynamic> product) {
+  void _addItemToCart(Map<String, dynamic> product, {bool addAsCarton = false}) {
     setState(() {
-      final existingIndex = _cart.indexWhere((i) => i.productId == product['id']);
+      final productId = product['id'] as String;
+      final existingIndex = _cart.indexWhere((i) => i.productId == productId && i.isCarton == addAsCarton);
       if (existingIndex >= 0) {
         _cart[existingIndex].quantity += 1;
       } else {
-        final salePrice = product['sale_price'] as int? ?? 0;
-        final minPrice = product['min_sale_price'] as int? ?? salePrice;
+        final baseSale = product['wh_sale_price'] as int? ?? product['sale_price'] as int? ?? 0;
+        final baseMin = product['wh_wholesale_price'] as int? ?? product['min_sale_price'] as int? ?? baseSale;
+        final whCarton = product['wh_carton_price'] as int? ?? product['carton_price'] as int? ?? 0;
+        final unitsPerCarton = product['units_per_carton'] as int? ?? 1;
+
         _cart.add(CartItem(
-          productId: product['id'] as String,
+          productId: productId,
           name: product['name_ar'] as String,
           sku: product['sku'] as String,
-          retailPriceCents: salePrice,
-          wholesalePriceCents: minPrice > 0 ? minPrice : salePrice,
+          retailPriceCents: baseSale,
+          wholesalePriceCents: baseMin > 0 ? baseMin : baseSale,
           costPriceCents: product['cost_price'] as int? ?? 0,
+          unitsPerCarton: unitsPerCarton,
+          cartonPriceCents: whCarton,
           isWholesale: false,
+          isCarton: addAsCarton,
           quantity: 1,
         ));
       }
-      _lastMessage = 'تمت إضافة: ${product['name_ar']}';
+      _lastMessage = addAsCarton
+          ? 'تمت إضافة كرتون: ${product['name_ar']}'
+          : 'تمت إضافة حبة: ${product['name_ar']}';
     });
   }
 
@@ -182,7 +257,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       final companyRow = db.select('SELECT id FROM companies LIMIT 1').first;
       final companyId = companyRow['id'] as String;
       final branchId = db.select('SELECT id FROM branches WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
-      final warehouseId = db.select('SELECT id FROM warehouses WHERE branch_id = ? LIMIT 1', [branchId]).first['id'] as String;
+      final warehouseId = _selectedWarehouseId.isNotEmpty
+          ? _selectedWarehouseId
+          : (db.select('SELECT id FROM warehouses WHERE branch_id = ? LIMIT 1', [branchId]).first['id'] as String);
       final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
 
       // Determine customer
@@ -239,8 +316,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           tx.execute('''
             INSERT INTO sales_invoice_items (
               id, invoice_id, product_id, quantity, unit_id,
-              unit_price, cost_price, tax_amount, line_total
-            ) VALUES (?, ?, ?, ?, 'unit_pcs', ?, ?, ?, ?)
+              unit_price, cost_price, tax_amount, line_total,
+              unit_type, units_per_pack
+            ) VALUES (?, ?, ?, ?, 'unit_pcs', ?, ?, ?, ?, ?, ?)
           ''', [
             itemId,
             invoiceId,
@@ -250,9 +328,11 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             item.costPriceCents,
             lineTax,
             item.totalCents + lineTax,
+            item.isCarton ? 'CARTON' : 'PIECE',
+            item.isCarton ? item.unitsPerCarton : 1,
           ]);
 
-          // Stock Movement
+          // Stock Movement in inventory pieces
           tx.execute('''
             INSERT INTO inventory_movements (
               id, company_id, warehouse_id, product_id, movement_type,
@@ -264,12 +344,19 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             companyId,
             warehouseId,
             item.productId,
-            -item.quantity,
+            -item.inventoryPieces,
             item.costPriceCents,
-            item.costPriceCents * item.quantity,
+            item.costPriceCents * item.inventoryPieces,
             invoiceId,
             userId,
           ]);
+
+          // Update Warehouse Real-time Stock Balance
+          tx.execute('''
+            UPDATE inventory_balances 
+            SET quantity = quantity - ?, updated_at = datetime('now')
+            WHERE warehouse_id = ? AND product_id = ?
+          ''', [item.inventoryPieces, warehouseId, item.productId]);
         }
 
         // 3. Record Payment if any cash was paid
@@ -570,6 +657,41 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             ),
             title: const Text('نقطة البيع السريعة — POS (تجزئة، جملة، نقد، وآجل)'),
             actions: [
+              if (_warehouses.isNotEmpty) ...[
+                Container(
+                  height: 38,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPrimary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.brandPrimary.withValues(alpha: 0.3)),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selectedWarehouseId.isNotEmpty ? _selectedWarehouseId : _warehouses.first['id'] as String,
+                      icon: const Icon(Icons.warehouse_rounded, color: AppColors.brandPrimary, size: 18),
+                      items: _warehouses.map((w) {
+                        return DropdownMenuItem<String>(
+                          value: w['id'] as String,
+                          child: Text(
+                            'المخزن: ${w['name']}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandPrimary),
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (newWhId) {
+                        if (newWhId != null) {
+                          setState(() {
+                            _selectedWarehouseId = newWhId;
+                            _loadCatalog();
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
               Chip(
                 backgroundColor: AppColors.success.withValues(alpha: 0.15),
                 side: BorderSide.none,
@@ -691,9 +813,56 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                               ),
                                             ),
                                           ),
+                                          // Carton vs Piece Toggle Chip (if packaging available)
+                                          if (item.hasCarton) ...[
+                                            const SizedBox(width: 8),
+                                            InkWell(
+                                              onTap: () {
+                                                setState(() {
+                                                  item.isCarton = !item.isCarton;
+                                                });
+                                              },
+                                              borderRadius: BorderRadius.circular(6),
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: item.isCarton
+                                                      ? AppColors.brandAccent.withValues(alpha: 0.15)
+                                                      : AppColors.lightBgSubtle,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(
+                                                    color: item.isCarton ? AppColors.brandAccent : AppColors.lightBorderSubtle,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      item.isCarton ? Icons.all_inbox_rounded : Icons.widgets_outlined,
+                                                      size: 11,
+                                                      color: item.isCarton ? AppColors.brandAccent : AppColors.lightTextSecondary,
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      item.isCarton ? 'بالكرتون (${item.unitsPerCarton} حبة)' : 'بالحبة',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: item.isCarton ? AppColors.brandAccent : AppColors.lightTextSecondary,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
-                                      subtitle: Text('SKU: ${item.sku} | السعر: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR'),
+                                      subtitle: Text(
+                                        item.isCarton
+                                            ? 'SKU: ${item.sku} | سعر الكرتون: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR (مسحوب مخزن: ${item.inventoryPieces} حبة)'
+                                            : 'SKU: ${item.sku} | سعر الحبة: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR',
+                                      ),
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -734,42 +903,91 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Quick Product Tiles
+                      // Quick Product Tiles with Multi-Warehouse Pricing and Stock Breakdown
                       SizedBox(
-                        height: 90,
+                        height: 96,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: _quickProducts.length,
                           separatorBuilder: (_, __) => const SizedBox(width: 8),
                           itemBuilder: (context, index) {
                             final prod = _quickProducts[index];
-                            return InkWell(
-                              onTap: () => _addItemToCart(prod),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                width: 140,
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.surface,
-                                  border: Border.all(color: AppColors.lightBorderSubtle),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      prod['name_ar'] as String,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
-                                    ),
-                                    const Spacer(),
-                                    Text(
-                                      '${((prod['sale_price'] as int) / 100.0).toStringAsFixed(2)} SAR',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandAccent, fontSize: 13),
-                                    ),
-                                  ],
+                            final int salePrice = prod['wh_sale_price'] as int? ?? prod['sale_price'] as int? ?? 0;
+                            final int stockQty = prod['stock_qty'] as int? ?? 0;
+                            final int unitsPerCarton = prod['units_per_carton'] as int? ?? 1;
+                            final bool hasCarton = unitsPerCarton > 1;
+
+                            String stockText;
+                            if (unitsPerCarton <= 1) {
+                              stockText = '$stockQty حبة';
+                            } else {
+                              final c = stockQty ~/ unitsPerCarton;
+                              final p = stockQty % unitsPerCarton;
+                              if (c == 0) {
+                                stockText = '$p حبة';
+                              } else if (p == 0) {
+                                stockText = '$c كرتون';
+                              } else {
+                                stockText = '$c كرتون و $p حبة';
+                              }
+                            }
+
+                            return Tooltip(
+                              message: hasCarton ? 'نقرة: إضافة حبة | ضغط مطول: إضافة كرتون' : 'إضافة حبة للسلة',
+                              child: InkWell(
+                                onTap: () => _addItemToCart(prod, addAsCarton: false),
+                                onLongPress: hasCarton ? () => _addItemToCart(prod, addAsCarton: true) : null,
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  width: 148,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.surface,
+                                    border: Border.all(color: AppColors.lightBorderSubtle),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        prod['name_ar'] as String,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'المخزون: $stockText',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: stockQty > 0 ? AppColors.successText : AppColors.dangerText,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            '${(salePrice / 100.0).toStringAsFixed(2)} SAR',
+                                            style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandAccent, fontSize: 12),
+                                          ),
+                                          const Spacer(),
+                                          if (hasCarton)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.brandPrimary.withValues(alpha: 0.1),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: const Text('كرتون', style: TextStyle(fontSize: 9, color: AppColors.brandPrimary, fontWeight: FontWeight.bold)),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             );

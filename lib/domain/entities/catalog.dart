@@ -62,6 +62,10 @@ class ProductEntity {
   final int reorderLevel;
   final bool trackInventory;
   final bool isActive;
+  final int unitsPerCarton;
+  final int cartonPriceCents;
+  final int cartonCostPriceCents;
+  final String? cartonBarcode;
 
   const ProductEntity({
     required this.id,
@@ -78,11 +82,35 @@ class ProductEntity {
     this.reorderLevel = 0,
     this.trackInventory = true,
     this.isActive = true,
+    this.unitsPerCarton = 1,
+    this.cartonPriceCents = 0,
+    this.cartonCostPriceCents = 0,
+    this.cartonBarcode,
   });
 
   double get costPrice => costPriceCents / 100.0;
   double get salePrice => salePriceCents / 100.0;
   double get minSalePrice => minSalePriceCents / 100.0;
+
+  bool get hasCarton => unitsPerCarton > 1;
+  double get cartonPrice => cartonPriceCents > 0 ? cartonPriceCents / 100.0 : (salePrice * unitsPerCarton);
+  double get cartonCostPrice => cartonCostPriceCents > 0 ? cartonCostPriceCents / 100.0 : (costPrice * unitsPerCarton);
+
+  /// Returns user-friendly breakdown: e.g. "2 كرتون و 4 حبة (28 حبة)"
+  String formatStockBreakdown(int totalPieces) {
+    if (unitsPerCarton <= 1) {
+      return '$totalPieces حبة';
+    }
+    final cartons = totalPieces ~/ unitsPerCarton;
+    final pieces = totalPieces % unitsPerCarton;
+    if (cartons == 0) {
+      return '$pieces حبة';
+    } else if (pieces == 0) {
+      return '$cartons كرتون ($totalPieces حبة)';
+    } else {
+      return '$cartons كرتون و $pieces حبة ($totalPieces حبة)';
+    }
+  }
 
   factory ProductEntity.fromMap(Map<String, dynamic> map) {
     return ProductEntity(
@@ -94,12 +122,16 @@ class ProductEntity {
       barcode: map['barcode'] as String?,
       nameAr: map['name_ar'] as String,
       nameEn: map['name_en'] as String?,
-      costPriceCents: map['cost_price'] as int,
-      salePriceCents: map['sale_price'] as int,
-      minSalePriceCents: map['min_sale_price'] as int,
-      reorderLevel: map['reorder_level'] as int,
-      trackInventory: (map['track_inventory'] as int) == 1,
-      isActive: (map['is_active'] as int) == 1,
+      costPriceCents: map['cost_price'] as int? ?? 0,
+      salePriceCents: map['sale_price'] as int? ?? 0,
+      minSalePriceCents: map['min_sale_price'] as int? ?? 0,
+      reorderLevel: map['reorder_level'] as int? ?? 0,
+      trackInventory: (map['track_inventory'] as int? ?? 1) == 1,
+      isActive: (map['is_active'] as int? ?? 1) == 1,
+      unitsPerCarton: map['units_per_carton'] as int? ?? 1,
+      cartonPriceCents: map['carton_price'] as int? ?? 0,
+      cartonCostPriceCents: map['carton_cost_price'] as int? ?? 0,
+      cartonBarcode: map['carton_barcode'] as String?,
     );
   }
 }
