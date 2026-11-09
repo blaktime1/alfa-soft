@@ -1,10 +1,13 @@
 import 'package:uuid/uuid.dart';
 import '../local/database_service.dart';
 import '../../domain/entities/catalog.dart';
+import '../../core/sync/outbox_manager.dart';
 
 class CatalogRepository {
   final DatabaseService _db;
-  const CatalogRepository(this._db);
+  final OutboxManager _outbox;
+
+  CatalogRepository(this._db) : _outbox = OutboxManager(_db);
 
   List<UnitEntity> getUnits(String companyId) {
     final result = _db.select('SELECT * FROM units WHERE company_id = ? ORDER BY code ASC', [companyId]);
@@ -60,7 +63,7 @@ class CatalogRepository {
     String? query,
     String? categoryId,
   }) {
-    String sql = 'SELECT * FROM products WHERE company_id = ?';
+    String sql = 'SELECT * FROM products WHERE company_id = ? AND is_active = 1';
     final params = <Object?>[companyId];
 
     if (categoryId != null && categoryId.isNotEmpty) {
@@ -126,6 +129,27 @@ class CatalogRepository {
       ''', ['aud_${uuid.v4()}', companyId, id, 'Created SKU: $sku, Name: $nameAr']);
     });
 
+    try {
+      _outbox.enqueue(
+        entityType: 'PRODUCT',
+        entityId: id,
+        operation: SyncOperation.create,
+        payload: {
+          'id': id,
+          'company_id': companyId,
+          'sku': sku.trim(),
+          'barcode': barcode?.trim(),
+          'name_ar': nameAr.trim(),
+          'name_en': nameEn?.trim(),
+          'cost_price': costPriceCents,
+          'sale_price': salePriceCents,
+          'min_sale_price': minSalePriceCents,
+          'reorder_level': reorderLevel,
+          'is_active': 1,
+        },
+      );
+    } catch (_) {}
+
     return ProductEntity(
       id: id,
       companyId: companyId,
@@ -141,5 +165,91 @@ class CatalogRepository {
       reorderLevel: reorderLevel,
       trackInventory: trackInventory,
     );
+  }
+
+  void updateProduct({
+    required String id,
+    required String nameAr,
+    String? nameEn,
+    String? barcode,
+    required int costPriceCents,
+    required int salePriceCents,
+    required int minSalePriceCents,
+    required int reorderLevel,
+    String? categoryId,
+    String? baseUnitId,
+    bool isActive = true,
+    String? modifiedBy,
+  }) {
+    _db.transaction((tx) {
+      tx.execute('''
+        UPDATE products 
+        SET name_ar = ?, name_en = ?, barcode = ?, cost_price = ?, sale_price = ?,
+            min_sale_price = ?, reorder_level = ?, category_id = ?, base_unit_id = COALESCE(?, base_unit_id),
+            is_active = ?, updated_at = datetime('now')
+        WHERE id = ?
+      ''', [
+        nameAr.trim(),
+        nameEn?.trim(),
+        barcode?.trim(),
+        costPriceCents,
+        salePriceCents,
+        minSalePriceCents,
+        reorderLevel,
+        categoryId,
+        baseUnitId,
+        isActive ? 1 : 0,
+        id,
+      ]);
+
+      const uuid = Uuid();
+      tx.execute('''
+        INSERT INTO audit_logs (id, company_id, user_id, device_id, action, entity_name, entity_id, new_state)
+        VALUES (?, 'SYSTEM', ?, 'LOCAL_DESKTOP', 'UPDATE_PRODUCT', 'PRODUCT', ?, ?)
+      ''', [
+        'aud_${uuid.v4()}',
+        modifiedBy ?? 'ADMIN',
+        id,
+        'Updated: $nameAr, Cost: ${costPriceCents / 100}, Sale: ${salePriceCents / 100}',
+      ]);
+    });
+
+    try {
+      _outbox.enqueue(
+        entityType: 'PRODUCT',
+        entityId: id,
+        operation: SyncOperation.update,
+        payload: {
+          'id': id,
+          'name_ar': nameAr.trim(),
+          'name_en': nameEn?.trim(),
+          'barcode': barcode?.trim(),
+          'cost_price': costPriceCents,
+          'sale_price': salePriceCents,
+          'min_sale_price': minSalePriceCents,
+          'reorder_level': reorderLevel,
+          'is_active': isActive ? 1 : 0,
+        },
+      );
+    } catch (_) {}
+  }
+
+  void deleteProduct(String id, [String? deletedBy]) {
+    _db.execute('UPDATE products SET is_active = 0, updated_at = datetime("now") WHERE id = ?', [id]);
+
+    try {
+      const uuid = Uuid();
+      _db.execute('''
+        INSERT INTO audit_logs (id, company_id, user_id, device_id, action, entity_name, entity_id, new_state)
+        VALUES (?, 'SYSTEM', ?, 'LOCAL_DESKTOP', 'DELETE_PRODUCT', 'PRODUCT', ?, 'Product deactivated')
+      ''', ['aud_${uuid.v4()}', deletedBy ?? 'ADMIN', id]);
+
+      _outbox.enqueue(
+        entityType: 'PRODUCT',
+        entityId: id,
+        operation: SyncOperation.delete,
+        payload: {'id': id, 'is_active': 0},
+      );
+    } catch (_) {}
   }
 }

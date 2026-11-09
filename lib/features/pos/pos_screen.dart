@@ -5,25 +5,31 @@ import 'package:uuid/uuid.dart';
 import '../../core/math/bankers_rounding.dart';
 import '../../core/math/vat_calculator.dart';
 import '../../core/providers/app_state_provider.dart';
+import '../../core/sync/outbox_manager.dart';
 import '../../core/theme/app_colors.dart';
 
 class CartItem {
   final String productId;
   final String name;
   final String sku;
-  final int unitPriceCents;
+  final int retailPriceCents;
+  final int wholesalePriceCents;
   final int costPriceCents;
+  bool isWholesale;
   int quantity;
 
   CartItem({
     required this.productId,
     required this.name,
     required this.sku,
-    required this.unitPriceCents,
+    required this.retailPriceCents,
+    required this.wholesalePriceCents,
     required this.costPriceCents,
+    this.isWholesale = false,
     this.quantity = 1,
   });
 
+  int get unitPriceCents => (isWholesale && wholesalePriceCents > 0) ? wholesalePriceCents : retailPriceCents;
   int get totalCents => unitPriceCents * quantity;
 }
 
@@ -68,27 +74,25 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
     if (count == 0) {
       final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
-      // Add default unit
       db.execute('''
         INSERT OR IGNORE INTO units (id, company_id, code, name)
         VALUES ('unit_pcs', ?, 'PCS', 'حبة / قطعة')
       ''', [companyId]);
 
-      // Seed core initial products
       final sampleItems = [
-        ['prod_1', '1001', 'مياه معدنية 500 مل', 150, 80],
-        ['prod_2', '1002', 'حليب طازج 1 لتر', 600, 450],
-        ['prod_3', '1003', 'أرز بسمتي 5 كجم', 4500, 3800],
-        ['prod_4', '1004', 'زيت نباتي نقي 1.5 لتر', 1800, 1450],
-        ['prod_5', '1005', 'سكر أبيض ناعم 2 كجم', 900, 750],
-        ['prod_6', '1006', 'شاي أحمر فرط 400 جم', 1400, 1100],
+        ['prod_1', '1001', 'مياه معدنية 500 مل', 150, 120, 80],
+        ['prod_2', '1002', 'حليب طازج 1 لتر', 600, 500, 450],
+        ['prod_3', '1003', 'أرز بسمتي 5 كجم', 4500, 4000, 3800],
+        ['prod_4', '1004', 'زيت نباتي نقي 1.5 لتر', 1800, 1600, 1450],
+        ['prod_5', '1005', 'سكر أبيض ناعم 2 كجم', 900, 800, 750],
+        ['prod_6', '1006', 'شاي أحمر فرط 400 جم', 1400, 1200, 1100],
       ];
 
       for (final item in sampleItems) {
         db.execute('''
-          INSERT INTO products (id, company_id, base_unit_id, sku, barcode, name_ar, sale_price, cost_price, is_active)
-          VALUES (?, ?, 'unit_pcs', ?, ?, ?, ?, ?, 1)
-        ''', [item[0], companyId, item[1], item[1], item[2], item[3], item[4]]);
+          INSERT INTO products (id, company_id, base_unit_id, sku, barcode, name_ar, sale_price, min_sale_price, cost_price, is_active)
+          VALUES (?, ?, 'unit_pcs', ?, ?, ?, ?, ?, ?, 1)
+        ''', [item[0], companyId, item[1], item[1], item[2], item[3], item[4], item[5]]);
       }
     }
   }
@@ -96,7 +100,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   void _loadCatalog() {
     final db = ref.read(databaseServiceProvider);
     final result = db.select('''
-      SELECT id, sku, barcode, name_ar, sale_price, cost_price 
+      SELECT id, sku, barcode, name_ar, sale_price, min_sale_price, cost_price 
       FROM products 
       WHERE is_active = 1 
       LIMIT 20
@@ -112,7 +116,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
     final db = ref.read(databaseServiceProvider);
     final match = db.select('''
-      SELECT id, sku, barcode, name_ar, sale_price, cost_price 
+      SELECT id, sku, barcode, name_ar, sale_price, min_sale_price, cost_price 
       FROM products 
       WHERE barcode = ? OR sku = ? OR name_ar LIKE ? 
       LIMIT 1
@@ -134,12 +138,16 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       if (existingIndex >= 0) {
         _cart[existingIndex].quantity += 1;
       } else {
+        final salePrice = product['sale_price'] as int? ?? 0;
+        final minPrice = product['min_sale_price'] as int? ?? salePrice;
         _cart.add(CartItem(
           productId: product['id'] as String,
           name: product['name_ar'] as String,
           sku: product['sku'] as String,
-          unitPriceCents: product['sale_price'] as int,
-          costPriceCents: product['cost_price'] as int,
+          retailPriceCents: salePrice,
+          wholesalePriceCents: minPrice > 0 ? minPrice : salePrice,
+          costPriceCents: product['cost_price'] as int? ?? 0,
+          isWholesale: false,
           quantity: 1,
         ));
       }
@@ -155,12 +163,20 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
   int get _grandTotalCents => _subtotalCents + _taxCents;
 
-  void _processCashCheckout() {
+  /// Executes checkout with support for Cash, Card, or Credit (on account)
+  void _processCheckout({
+    required String paymentMethod, // 'CASH', 'CARD', 'CREDIT'
+    required bool isCredit,
+    String? selectedCustomerId,
+    String? selectedCustomerName,
+    int advancePaidCents = 0,
+  }) {
     if (_cart.isEmpty) return;
 
     setState(() => _isProcessing = true);
     final db = ref.read(databaseServiceProvider);
     const uuid = Uuid();
+    final outbox = OutboxManager(db);
 
     try {
       final companyRow = db.select('SELECT id FROM companies LIMIT 1').first;
@@ -169,21 +185,28 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       final warehouseId = db.select('SELECT id FROM warehouses WHERE branch_id = ? LIMIT 1', [branchId]).first['id'] as String;
       final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
 
-      // Ensure a walk-in customer exists
-      final custCheck = db.select('SELECT id FROM customers WHERE company_id = ? AND code = "WALK_IN"', [companyId]);
-      final String customerId;
-      if (custCheck.isEmpty) {
-        customerId = 'cust_${uuid.v4()}';
-        db.execute('''
-          INSERT INTO customers (id, company_id, code, name, is_active)
-          VALUES (?, ?, 'WALK_IN', 'عميل نقدي عابر', 1)
-        ''', [customerId, companyId]);
-      } else {
-        customerId = custCheck.first['id'] as String;
+      // Determine customer
+      String resolvedCustomerId = selectedCustomerId ?? '';
+      if (resolvedCustomerId.isEmpty) {
+        final custCheck = db.select('SELECT id FROM customers WHERE company_id = ? AND code = "WALK_IN"', [companyId]);
+        if (custCheck.isEmpty) {
+          resolvedCustomerId = 'cust_${uuid.v4()}';
+          db.execute('''
+            INSERT INTO customers (id, company_id, code, name, is_active)
+            VALUES (?, ?, 'WALK_IN', 'عميل نقدي عابر', 1)
+          ''', [resolvedCustomerId, companyId]);
+        } else {
+          resolvedCustomerId = custCheck.first['id'] as String;
+        }
       }
 
       final invoiceId = 'inv_${uuid.v4()}';
       final invoiceNumber = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+      final int actualPaidCents = isCredit ? advancePaidCents : _grandTotalCents;
+      final int balanceDueCents = _grandTotalCents - actualPaidCents;
+      final String paymentStatus = isCredit
+          ? (actualPaidCents > 0 ? 'PARTIAL' : 'CREDIT')
+          : 'PAID';
 
       db.transaction((tx) {
         // 1. Insert Sales Invoice Header
@@ -192,26 +215,26 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             id, company_id, branch_id, warehouse_id, customer_id,
             invoice_number, invoice_date, subtotal, tax_total, grand_total, paid_total,
             status, payment_status, created_by_user_id
-          ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, 'POSTED', 'PAID', ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, 'POSTED', ?, ?)
         ''', [
           invoiceId,
           companyId,
           branchId,
           warehouseId,
-          customerId,
+          resolvedCustomerId,
           invoiceNumber,
           _subtotalCents,
           _taxCents,
           _grandTotalCents,
-          _grandTotalCents,
+          actualPaidCents,
+          paymentStatus,
           userId,
         ]);
 
         // 2. Insert Invoice Items & Inventory Movements
         for (final item in _cart) {
           final itemId = 'item_${uuid.v4()}';
-          final lineTax = BankersRounding.toMinorUnits(
-              (item.totalCents / 100.0) * 0.15, scale: 2);
+          final lineTax = BankersRounding.toMinorUnits((item.totalCents / 100.0) * 0.15, scale: 2);
 
           tx.execute('''
             INSERT INTO sales_invoice_items (
@@ -229,7 +252,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             item.totalCents + lineTax,
           ]);
 
-          // Record Inventory Movement (Stock Deduction)
+          // Stock Movement
           tx.execute('''
             INSERT INTO inventory_movements (
               id, company_id, warehouse_id, product_id, movement_type,
@@ -241,7 +264,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             companyId,
             warehouseId,
             item.productId,
-            -item.quantity, // Negative for outbound sales
+            -item.quantity,
             item.costPriceCents,
             item.costPriceCents * item.quantity,
             invoiceId,
@@ -249,22 +272,34 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           ]);
         }
 
-        // 3. Record Payment
-        tx.execute('''
-          INSERT INTO payments (
-            id, company_id, branch_id, document_type, document_id,
-            payment_method, amount, created_by_user_id
-          ) VALUES (?, ?, ?, 'SALES_INVOICE', ?, 'CASH', ?, ?)
-        ''', [
-          'pay_${uuid.v4()}',
-          companyId,
-          branchId,
-          invoiceId,
-          _grandTotalCents,
-          userId,
-        ]);
+        // 3. Record Payment if any cash was paid
+        if (actualPaidCents > 0) {
+          tx.execute('''
+            INSERT INTO payments (
+              id, company_id, branch_id, document_type, document_id,
+              payment_method, amount, created_by_user_id
+            ) VALUES (?, ?, ?, 'SALES_INVOICE', ?, ?, ?, ?)
+          ''', [
+            'pay_${uuid.v4()}',
+            companyId,
+            branchId,
+            invoiceId,
+            isCredit ? 'CASH_ADVANCE' : paymentMethod,
+            actualPaidCents,
+            userId,
+          ]);
+        }
 
-        // 4. Audit Log
+        // 4. Update Customer Balance if credit was extended
+        if (isCredit && balanceDueCents > 0) {
+          tx.execute('''
+            UPDATE customers 
+            SET current_balance = current_balance + ?, updated_at = datetime('now')
+            WHERE id = ?
+          ''', [balanceDueCents, resolvedCustomerId]);
+        }
+
+        // 5. Audit Log
         tx.execute('''
           INSERT INTO audit_logs (
             id, company_id, branch_id, user_id, device_id,
@@ -276,11 +311,11 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           branchId,
           userId,
           invoiceId,
-          'Invoice: $invoiceNumber, Total: ${_grandTotalCents / 100.0} SAR',
+          'Invoice: $invoiceNumber, Total: ${_grandTotalCents / 100} SAR, Status: $paymentStatus, BalanceDue: ${balanceDueCents / 100} SAR',
         ]);
       });
 
-      // Post double-entry journal entry for POS sales invoice
+      // 6. Post double-entry journal entry
       final totalCost = _cart.fold(0, (sum, i) => sum + (i.costPriceCents * i.quantity));
       try {
         ref.read(accountingRepositoryProvider).postSalesInvoiceJournal(
@@ -294,14 +329,35 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           taxCents: _taxCents,
           grandTotalCents: _grandTotalCents,
           totalCostCents: totalCost,
-          isCash: true,
+          isCash: !isCredit || (balanceDueCents == 0),
+        );
+      } catch (_) {}
+
+      // 7. Enqueue to sync outbox
+      try {
+        outbox.enqueue(
+          entityType: 'SALES_INVOICE',
+          entityId: invoiceId,
+          operation: SyncOperation.create,
+          payload: {
+            'id': invoiceId,
+            'number': invoiceNumber,
+            'customer_id': resolvedCustomerId,
+            'total': _grandTotalCents,
+            'paid': actualPaidCents,
+            'status': paymentStatus,
+          },
         );
       } catch (_) {}
 
       setState(() {
         _cart.clear();
         _isProcessing = false;
-        _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ ${(_grandTotalCents / 100.0).toStringAsFixed(2)} SAR';
+        if (isCredit) {
+          _lastMessage = 'تم اعتماد الفاتورة الآجلة بنجاح: $invoiceNumber على حساب "${selectedCustomerName ?? "العميل"}" | المتبقي آجل: ${(balanceDueCents / 100.0).toStringAsFixed(2)} SAR';
+        } else {
+          _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ ${(_grandTotalCents / 100.0).toStringAsFixed(2)} SAR ($paymentMethod)';
+        }
       });
 
       _barcodeFocusNode.requestFocus();
@@ -313,6 +369,180 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     }
   }
 
+  /// Opens credit sales dialog to choose customer/supplier and advance payment
+  void _showCreditCheckoutDialog() {
+    if (_cart.isEmpty) return;
+
+    final db = ref.read(databaseServiceProvider);
+    final compResult = db.select('SELECT id FROM companies LIMIT 1');
+    if (compResult.isEmpty) return;
+    final companyId = compResult.first['id'] as String;
+
+    // Fetch active customers
+    final customerRows = db.select(
+      'SELECT id, code, name, phone, credit_limit, current_balance FROM customers WHERE company_id = ? AND is_active = 1 ORDER BY name ASC',
+      [companyId],
+    );
+
+    if (customerRows.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لا يوجد عملاء مسجلون لإجراء البيع الآجل. يرجى إضافة عميل أولاً من شاشة العملاء والموردين.'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
+    String selectedCustId = customerRows.first['id'] as String;
+    final advancePaidController = TextEditingController(text: '0.00');
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final selectedCustomer = customerRows.firstWhere((c) => c['id'] == selectedCustId);
+            final currentDebt = (selectedCustomer['current_balance'] as int) / 100.0;
+            final creditLimit = (selectedCustomer['credit_limit'] as int) / 100.0;
+
+            final advanceDouble = double.tryParse(advancePaidController.text.trim()) ?? 0.0;
+            final totalDouble = _grandTotalCents / 100.0;
+            final remainingDue = (totalDouble - advanceDouble).clamp(0.0, totalDouble);
+
+            return AlertDialog(
+              backgroundColor: AppColors.lightBgSurface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.account_balance_wallet_rounded, color: AppColors.brandGoldDark),
+                  SizedBox(width: 10),
+                  Text('إصدار فاتورة بيع آجل (على الحساب)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: SizedBox(
+                width: 500,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Invoice Totals summary box
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandGold.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.brandGold.withValues(alpha: 0.3)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('إجمالي الفاتورة المطلوب:', style: TextStyle(fontWeight: FontWeight.w600)),
+                              Text('${totalDouble.toStringAsFixed(2)} SAR',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.brandPrimary)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('المبلغ المتبقي آجل على الحساب:', style: TextStyle(fontWeight: FontWeight.w600)),
+                              Text('${remainingDue.toStringAsFixed(2)} SAR',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.dangerText)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Customer Selector Dropdown
+                    const Text('اختر العميل / الطرف المستفيد من الآجل *', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedCustId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.person_pin_rounded, color: AppColors.brandPrimary),
+                      ),
+                      items: customerRows.map((c) {
+                        return DropdownMenuItem<String>(
+                          value: c['id'] as String,
+                          child: Text('${c['name']} (${c['code']}) — ${c['phone'] ?? ""}'),
+                        );
+                      }).toList(),
+                      onChanged: (v) {
+                        if (v != null) {
+                          setModalState(() => selectedCustId = v);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Customer Balance Info Box
+                    Row(
+                      children: [
+                        Text('الرصيد السابق عليه: ${currentDebt.toStringAsFixed(2)} SAR',
+                            style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                        const Spacer(),
+                        Text('سقف الائتمان: ${creditLimit.toStringAsFixed(2)} SAR',
+                            style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Advance Payment Field
+                    TextFormField(
+                      controller: advancePaidController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'دفعة مقدمة نقداً (إن دفع جزءاً الآن)',
+                        prefixIcon: Icon(Icons.payments_outlined, color: AppColors.success),
+                        hintText: '0.00',
+                      ),
+                      onChanged: (_) => setModalState(() {}),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.check_circle_rounded, size: 18),
+                  label: const Text('تأكيد وإصدار الفاتورة الآجلة'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.brandGoldDark,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  onPressed: () {
+                    final advanceCents = BankersRounding.toMinorUnits(advanceDouble);
+                    final custName = selectedCustomer['name'] as String;
+
+                    Navigator.pop(ctx);
+
+                    _processCheckout(
+                      paymentMethod: 'CREDIT',
+                      isCredit: true,
+                      selectedCustomerId: selectedCustId,
+                      selectedCustomerName: custName,
+                      advancePaidCents: advanceCents,
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -320,7 +550,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.f1): () => _barcodeFocusNode.requestFocus(),
-        const SingleActivator(LogicalKeyboardKey.f9): _processCashCheckout,
+        const SingleActivator(LogicalKeyboardKey.f9): () => _processCheckout(paymentMethod: 'CASH', isCredit: false),
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_cart.isNotEmpty) {
             setState(() => _cart.clear());
@@ -338,7 +568,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               onPressed: widget.onExit,
               tooltip: 'العودة للوحة التحكم (Esc)',
             ),
-            title: const Text('نقطة البيع السريعة — POS Fullscreen Mode'),
+            title: const Text('نقطة البيع السريعة — POS (تجزئة، جملة، نقد، وآجل)'),
             actions: [
               Chip(
                 backgroundColor: AppColors.success.withValues(alpha: 0.15),
@@ -417,7 +647,52 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                   itemBuilder: (context, index) {
                                     final item = _cart[index];
                                     return ListTile(
-                                      title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      title: Row(
+                                        children: [
+                                          Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          const SizedBox(width: 10),
+                                          // Retail vs Wholesale Toggle Chip
+                                          InkWell(
+                                            onTap: () {
+                                              setState(() {
+                                                item.isWholesale = !item.isWholesale;
+                                              });
+                                            },
+                                            borderRadius: BorderRadius.circular(6),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: item.isWholesale
+                                                    ? AppColors.brandGold.withValues(alpha: 0.2)
+                                                    : AppColors.brandPrimary.withValues(alpha: 0.1),
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(
+                                                  color: item.isWholesale ? AppColors.brandGoldDark : AppColors.brandPrimary,
+                                                ),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    item.isWholesale ? Icons.inventory_rounded : Icons.store_mall_directory_rounded,
+                                                    size: 11,
+                                                    color: item.isWholesale ? AppColors.brandGoldDark : AppColors.brandPrimary,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    item.isWholesale ? 'سعر الجملة' : 'سعر التجزئة',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: item.isWholesale ? AppColors.brandGoldDark : AppColors.brandPrimary,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                       subtitle: Text('SKU: ${item.sku} | السعر: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR'),
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -443,7 +718,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                           ),
                                           const SizedBox(width: 16),
                                           SizedBox(
-                                            width: 90,
+                                            width: 95,
                                             child: Text(
                                               '${(item.totalCents / 100.0).toStringAsFixed(2)} SAR',
                                               textAlign: TextAlign.end,
@@ -506,9 +781,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 ),
               ),
 
-              // Right Section: Order Summary & Checkout Panel
+              // Right Section: Order Summary & Multi-Payment Checkout Panel
               Container(
-                width: 340,
+                width: 360,
                 decoration: BoxDecoration(
                   color: theme.colorScheme.surface,
                   border: Border(right: BorderSide(color: theme.dividerColor)),
@@ -517,13 +792,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('ملخص الفاتورة',
+                    Text('ملخص الفاتورة والدفع',
                         style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
                     _SummaryRow(label: 'المجموع الفرعي', value: '${(_subtotalCents / 100.0).toStringAsFixed(2)} SAR'),
                     const SizedBox(height: 8),
                     _SummaryRow(label: 'ضريبة القيمة المضافة (15%)', value: '${(_taxCents / 100.0).toStringAsFixed(2)} SAR'),
-                    const Divider(height: 32),
+                    const Divider(height: 28),
                     _SummaryRow(
                       label: 'المجموع الكلي المطلوب',
                       value: '${(_grandTotalCents / 100.0).toStringAsFixed(2)} SAR',
@@ -532,19 +807,50 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                     ),
                     const Spacer(),
 
-                    // Cash Checkout Button (F9)
+                    // Option 1: Cash Checkout Button (F9)
                     ElevatedButton.icon(
-                      onPressed: _cart.isEmpty || _isProcessing ? null : _processCashCheckout,
+                      onPressed: _cart.isEmpty || _isProcessing
+                          ? null
+                          : () => _processCheckout(paymentMethod: 'CASH', isCredit: false),
                       icon: _isProcessing
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.payments_rounded, size: 24),
-                      label: const Text('دفع نقدي فوري وتثبيت (F9)', style: TextStyle(fontSize: 16)),
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.payments_rounded, size: 20),
+                      label: const Text('دفع نقدي فوري (F9)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.success,
-                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
                     const SizedBox(height: 8),
+
+                    // Option 2: Card / Network Checkout Button
+                    ElevatedButton.icon(
+                      onPressed: _cart.isEmpty || _isProcessing
+                          ? null
+                          : () => _processCheckout(paymentMethod: 'CARD', isCredit: false),
+                      icon: const Icon(Icons.credit_card_rounded, size: 20),
+                      label: const Text('دفع شبكة / مدى (بطاقة)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.brandAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Option 3: Credit Sale Button (بيع آجل على الحساب)
+                    ElevatedButton.icon(
+                      onPressed: _cart.isEmpty || _isProcessing ? null : _showCreditCheckoutDialog,
+                      icon: const Icon(Icons.account_balance_wallet_rounded, size: 20),
+                      label: const Text('بيع آجل (على الحساب)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.brandGoldDark,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
 
                     // Clear Cart Button
                     OutlinedButton.icon(
@@ -552,7 +858,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       icon: const Icon(Icons.delete_sweep_rounded),
                       label: const Text('تفريغ السلة (Esc)'),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ],
