@@ -32,6 +32,32 @@ jobs:
       - name: Compile Native Windows C++ Release Binary
         run: flutter build windows --release
 
+      - name: Prepare Release Directory for Inno Setup
+        shell: pwsh
+        run: |
+          Write-Host "Searching for compiled binaries..."
+          $exeFiles = Get-ChildItem -Path "build" -Recurse -Filter "*.exe"
+          $exeFiles | Format-Table FullName, Length
+
+          $targetDir = "build\windows\x64\runner\Release"
+          if (-not (Test-Path $targetDir)) {
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+          }
+
+          $mainExe = $exeFiles | Where-Object { $_.Name -like "*alfa*" -or $_.Name -like "*desktop*" } | Select-Object -First 1
+          if ($mainExe) {
+            $sourceDir = $mainExe.DirectoryName
+            Write-Host "Found release files in: $sourceDir"
+            if ($sourceDir -ne (Resolve-Path $targetDir).Path) {
+              Copy-Item -Path "$sourceDir\*" -Destination $targetDir -Recurse -Force
+            }
+            if (Test-Path "$targetDir\$($mainExe.Name)" -and $mainExe.Name -ne "alfa_soft.exe") {
+              Copy-Item -Path "$targetDir\$($mainExe.Name)" -Destination "$targetDir\alfa_soft.exe" -Force
+            }
+          }
+          Write-Host "Target directory contents:"
+          Get-ChildItem -Path $targetDir | Format-Table Name, Length
+
       - name: Install Inno Setup Compiler
         run: choco install innosetup --no-progress -y
 
