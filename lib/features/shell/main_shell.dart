@@ -16,6 +16,9 @@ import '../sync/sync_screen.dart';
 import '../enterprise/enterprise_screen.dart';
 import '../settings/settings_screen.dart';
 
+import 'package:window_manager/window_manager.dart';
+import 'app_exit_backup_dialog.dart';
+
 enum ShellNavSection {
   dashboard,
   pos,
@@ -37,14 +40,33 @@ class MainShell extends ConsumerStatefulWidget {
   ConsumerState<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends ConsumerState<MainShell> {
+class _MainShellState extends ConsumerState<MainShell> with WindowListener {
   ShellNavSection _activeSection = ShellNavSection.dashboard;
   String _companyName = 'ALFA SOFT';
 
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
     _loadCompanyInfo();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowClose() async {
+    try {
+      final isPreventClose = await windowManager.isPreventClose();
+      if (isPreventClose && mounted) {
+        AppExitBackupDialog.show(context);
+      }
+    } catch (_) {
+      if (mounted) AppExitBackupDialog.show(context);
+    }
   }
 
   void _loadCompanyInfo() {
@@ -167,33 +189,66 @@ class _MainShellState extends ConsumerState<MainShell> {
               ),
             ),
             trailing: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(10),
-                onTap: _confirmLogout,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.dangerBg,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.2)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.logout_rounded, size: 16, color: AppColors.dangerText),
-                      SizedBox(width: 8),
-                      Text(
-                        'تسجيل الخروج',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.dangerText,
-                        ),
+                    onTap: () => AppExitBackupDialog.show(context),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandGold.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.brandGold.withValues(alpha: 0.3)),
                       ),
-                    ],
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.shield_rounded, size: 14, color: AppColors.brandGoldDark),
+                          SizedBox(width: 6),
+                          Text(
+                            'إغلاق ونسخ آمن',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.brandGoldDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: _confirmLogout,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerBg,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.danger.withValues(alpha: 0.2)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.logout_rounded, size: 14, color: AppColors.dangerText),
+                          SizedBox(width: 6),
+                          Text(
+                            'تسجيل الخروج',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.dangerText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             selectedIndex: _activeSection.index,
@@ -258,7 +313,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                 // Top Application Bar
                 Container(
                   height: 64,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: const BoxDecoration(
                     color: AppColors.lightBgSurface,
                     border: Border(bottom: BorderSide(color: AppColors.lightBorderSubtle)),
@@ -289,7 +344,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
 
                       // Offline-Ready Indicator
                       Container(
@@ -328,18 +383,18 @@ class _MainShellState extends ConsumerState<MainShell> {
                       ),
 
                       // Language Toggle
-                      TextButton.icon(
-                        icon: const Icon(Icons.language_rounded, size: 18),
-                        label: Text(isArabic ? 'English' : 'العربية'),
+                      IconButton(
+                        icon: const Icon(Icons.language_rounded, size: 20),
+                        tooltip: isArabic ? 'English' : 'العربية',
                         onPressed: () {
                           ref.read(localeProvider.notifier).toggleLocale();
                         },
                       ),
-                      const SizedBox(width: 8),
 
                       // User Profile Info Card
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        constraints: const BoxConstraints(maxWidth: 140),
                         decoration: BoxDecoration(
                           color: AppColors.lightBgSubtle,
                           borderRadius: BorderRadius.circular(8),
@@ -349,30 +404,40 @@ class _MainShellState extends ConsumerState<MainShell> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             CircleAvatar(
-                              radius: 13,
+                              radius: 12,
                               backgroundColor: AppColors.brandPrimary,
                               child: Text(
                                 (currentUser?.username.isNotEmpty == true)
                                     ? currentUser!.username.substring(0, 1).toUpperCase()
                                     : 'A',
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              currentUser?.fullName ?? 'المدير العام',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.lightTextPrimary),
+                            Flexible(
+                              child: Text(
+                                currentUser?.fullName ?? 'المدير العام',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.lightTextPrimary),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 4),
 
                       // Logout Top Button
                       IconButton(
-                        icon: const Icon(Icons.logout_rounded, color: AppColors.danger, size: 20),
+                        icon: const Icon(Icons.logout_rounded, color: AppColors.lightTextSecondary, size: 20),
                         tooltip: 'تسجيل الخروج',
                         onPressed: _confirmLogout,
+                      ),
+
+                      // Exit & Auto-Backup System Button
+                      IconButton(
+                        icon: const Icon(Icons.power_settings_new_rounded, color: AppColors.danger, size: 20),
+                        tooltip: 'إغلاق المنظومة والنسخ الاحتياطي الآمن',
+                        onPressed: () => AppExitBackupDialog.show(context),
                       ),
                     ],
                   ),

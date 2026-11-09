@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart' hide TextDirection;
+import '../../core/backup/backup_service.dart';
 import '../../core/providers/app_state_provider.dart';
+import '../../core/providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../organization/organization_screen.dart';
 import '../migration/migration_screen.dart';
@@ -36,10 +36,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   final _receiptHeaderController = TextEditingController(text: 'أهلاً بكم في منظومة ألفا سوفت');
   final _receiptFooterController = TextEditingController(text: 'شكراً لتعاملكم معنا • البضاعة المباعة تستبدل خلال 3 أيام');
 
-  // DB Metrics
+  // DB Metrics & Backup
   int _tableCount = 0;
   bool _isOptimizing = false;
   String? _backupSuccessPath;
+  final _backupDirController = TextEditingController();
+  bool _autoBackupOnClose = true;
+  List<String> _availableDrives = [];
+  List<BackupArchiveInfo> _pastBackups = [];
 
   @override
   void initState() {
@@ -47,6 +51,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
     _tabController = TabController(length: 7, vsync: this);
     _loadCompanyData();
     _loadDbMetrics();
+    _loadBackupSettings();
   }
 
   @override
@@ -60,6 +65,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
     _addressController.dispose();
     _receiptHeaderController.dispose();
     _receiptFooterController.dispose();
+    _backupDirController.dispose();
     super.dispose();
   }
 
@@ -83,6 +89,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
       if (tblRows.isNotEmpty) {
         setState(() {
           _tableCount = tblRows.first['cnt'] as int;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadBackupSettings() async {
+    try {
+      final db = ref.read(databaseServiceProvider);
+      final backupService = BackupService(db);
+      final dir = await backupService.getEffectiveBackupDirectory();
+      final autoClose = backupService.isAutoBackupOnCloseEnabled();
+      final drives = backupService.getAvailableDrives();
+      final past = backupService.listBackups(dir);
+
+      if (mounted) {
+        setState(() {
+          _backupDirController.text = dir;
+          _autoBackupOnClose = autoClose;
+          _availableDrives = drives;
+          _pastBackups = past;
         });
       }
     } catch (_) {}
@@ -118,45 +144,56 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
     }
   }
 
+  void _saveBackupSettings() {
+    final db = ref.read(databaseServiceProvider);
+    final backupService = BackupService(db);
+    final path = _backupDirController.text.trim();
+    if (path.isNotEmpty) {
+      backupService.setBackupDirectory(path);
+      backupService.setAutoBackupOnClose(_autoBackupOnClose);
+      _loadBackupSettings();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ إعدادات ومسار النسخ الاحتياطي التلقائي بنجاح'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
+  }
+
   Future<void> _createLiveBackup() async {
     setState(() => _isOptimizing = true);
-    try {
-      final db = ref.read(databaseServiceProvider);
-      final appDir = await getApplicationSupportDirectory();
-      final backupDir = Directory(p.join(appDir.path, 'backups'));
-      if (!backupDir.existsSync()) {
-        backupDir.createSync(recursive: true);
+    final db = ref.read(databaseServiceProvider);
+    final backupService = BackupService(db);
+    final currentUser = ref.read(currentUserProvider);
+
+    final result = await backupService.createBackup(
+      customTargetDir: _backupDirController.text.trim().isNotEmpty ? _backupDirController.text.trim() : null,
+      executedBy: '${currentUser?.fullName ?? "admin"} (${currentUser?.username ?? "admin"})',
+    );
+
+    setState(() {
+      _isOptimizing = false;
+      if (result.isSuccess) {
+        _backupSuccessPath = '${result.dbFilePath}\n(ملف التقرير: ${result.manifestFilePath})';
       }
+    });
 
-      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
-      final backupPath = p.join(backupDir.path, 'alfa_soft_backup_$timestamp.db');
+    _loadBackupSettings();
 
-      try {
-        db.execute("VACUUM INTO '$backupPath'");
-      } catch (_) {
-        final backupFile = File(backupPath);
-        backupFile.writeAsStringSync('ALFA_BACKUP_SNAPSHOT_$timestamp');
-      }
-
-      setState(() {
-        _isOptimizing = false;
-        _backupSuccessPath = backupPath;
-      });
-
-      if (mounted) {
+    if (mounted) {
+      if (result.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('تم إنشاء النسخة الاحتياطية بنجاح:\n$backupPath'),
+            content: Text('تم إنشاء النسخة الاحتياطية بنجاح في:\n${result.dbFilePath}'),
             backgroundColor: AppColors.success,
             duration: const Duration(seconds: 4),
           ),
         );
-      }
-    } catch (e) {
-      setState(() => _isOptimizing = false);
-      if (mounted) {
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل النسخ الاحتياطي: $e'), backgroundColor: AppColors.danger),
+          SnackBar(content: Text('فشل النسخ الاحتياطي: ${result.errorMessage}'), backgroundColor: AppColors.danger),
         );
       }
     }
@@ -595,6 +632,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
 
   // TAB 3: Backup & Database
   Widget _buildBackupTab() {
+    final dateFormat = DateFormat('yyyy-MM-dd hh:mm a');
+
     return SingleChildScrollView(
       child: Container(
         decoration: BoxDecoration(
@@ -610,18 +649,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'النسخ الاحتياطي وإدارة محرك قاعدة البيانات (SQLite 3 WAL)',
+              'النسخ الاحتياطي التلقائي وإدارة محرك قاعدة البيانات (SQLite 3 WAL)',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.lightTextPrimary),
             ),
             const SizedBox(height: 6),
             const Text(
-              'يعمل النظام محلياً بنسبة 100% بدون اعتماد على الإنترنت مع أمان كامل للبيانات وتشفير عالي.',
+              'يقوم النظام تلقائياً بإنشاء نسخة احتياطية آمنة مع تقرير موثق بالساعة والتاريخ قبل كل إغلاق للتطبيق على أي قرص تختاره.',
               style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
             ),
             const SizedBox(height: 20),
             const Divider(),
             const SizedBox(height: 20),
 
+            // Health Cards
             Row(
               children: [
                 Expanded(
@@ -639,7 +679,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                           children: [
                             Icon(Icons.health_and_safety_rounded, color: AppColors.success, size: 20),
                             SizedBox(width: 8),
-                            Text('حالة المحرك', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                            Text('حالة محرك البيانات', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -666,13 +706,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                           children: [
                             Icon(Icons.lock_rounded, color: AppColors.brandAccent, size: 20),
                             SizedBox(width: 8),
-                            Text('مستوى الأمان', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                            Text('مستوى الأمان والتشفير', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
                           ],
                         ),
                         SizedBox(height: 8),
-                        Text('تشفير SHA-256 + سجل تدقيق', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        Text('تشفير SHA-256 + تقرير موثق', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                         SizedBox(height: 4),
-                        Text('Audit Logs غير قابلة للتعديل', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                        Text('مع بيان الساعة والتاريخ في ملف مستقل', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
                       ],
                     ),
                   ),
@@ -681,15 +721,86 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             ),
             const SizedBox(height: 28),
 
-            const Text('إجراءات النسخ الاحتياطي والصيانة:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-            const SizedBox(height: 12),
+            // Drive & Path Configuration Section
+            const Text(
+              'القرص والمجلد الافتراضي للنسخ الاحتياطي التلقائي:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.lightTextPrimary),
+            ),
+            const SizedBox(height: 10),
+
+            if (_availableDrives.isNotEmpty) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _availableDrives.map((drive) {
+                  final isSelected = _backupDirController.text.startsWith(drive);
+                  return ActionChip(
+                    avatar: Icon(Icons.storage_rounded, size: 16, color: isSelected ? Colors.white : AppColors.brandPrimary),
+                    label: Text(
+                      'قرص ($drive)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isSelected ? Colors.white : AppColors.brandPrimary,
+                      ),
+                    ),
+                    backgroundColor: isSelected ? AppColors.brandPrimary : AppColors.lightBgSubtle,
+                    side: BorderSide(color: isSelected ? AppColors.brandPrimary : AppColors.lightBorderSubtle),
+                    onPressed: () {
+                      setState(() {
+                        _backupDirController.text = '${drive}AlfaSoft_Backups';
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             Row(
               children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _backupDirController,
+                    textDirection: TextDirection.ltr,
+                    textAlign: TextAlign.left,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.folder_special_rounded, color: AppColors.brandAccent),
+                      hintText: r'D:\AlfaSoft_Backups',
+                      labelText: 'المسار الدائم على القرص',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
                 ElevatedButton.icon(
+                  onPressed: _saveBackupSettings,
+                  icon: const Icon(Icons.save_rounded, size: 18),
+                  label: const Text('حفظ المسار المختار'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('إنشاء نسخة احتياطية تلقائياً عند إغلاق التطبيق', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              subtitle: const Text('عرض نافذة تأكيد الإغلاق مع توثيق ساعة وتاريخ النسخة ومسار القرص المحدد'),
+              value: _autoBackupOnClose,
+              onChanged: (v) {
+                setState(() => _autoBackupOnClose = v);
+                _saveBackupSettings();
+              },
+            ),
+            const SizedBox(height: 20),
+
+            // Backup Actions
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPrimary),
                   onPressed: _isOptimizing ? null : _createLiveBackup,
                   icon: const Icon(Icons.backup_rounded),
-                  label: Text(_isOptimizing ? 'جاري إنشاء النسخة...' : 'إنشاء نسخة احتياطية فورية (Live Backup)'),
+                  label: Text(_isOptimizing ? 'جاري إنشاء النسخة والتقرير...' : 'إنشاء نسخة احتياطية فورية الآن (Live Backup)'),
                 ),
                 const SizedBox(width: 16),
                 OutlinedButton.icon(
@@ -715,7 +826,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'مسار آخر نسخة احتياطية ناجحة:\n$_backupSuccessPath',
+                        'تم إنشاء النسخة وتوثيق التقرير بنجاح:\n$_backupSuccessPath',
                         style: const TextStyle(fontSize: 12, color: AppColors.successText, fontWeight: FontWeight.w600),
                       ),
                     ),
@@ -723,6 +834,72 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                 ),
               ),
             ],
+
+            const SizedBox(height: 28),
+            const Divider(),
+            const SizedBox(height: 20),
+
+            // Past Backup Archives in Directory
+            Row(
+              children: [
+                const Icon(Icons.archive_rounded, color: AppColors.brandAccent, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'أرشيف النسخ الاحتياطية الموجودة في المجلد (${_pastBackups.length} نسخة):',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('تحديث القائمة', style: TextStyle(fontSize: 12)),
+                  onPressed: _loadBackupSettings,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            if (_pastBackups.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.lightBgSubtle,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.lightBorderSubtle),
+                ),
+                child: const Center(
+                  child: Text('لا توجد نسخ احتياطية سابقة في هذا المسار، يمكنك الضغط على إنشاء نسخة الآن.'),
+                ),
+              )
+            else
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.lightBgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.lightBorderSubtle),
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _pastBackups.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final b = _pastBackups[index];
+                    final sizeMB = (b.sizeBytes / (1024 * 1024)).toStringAsFixed(2);
+                    return ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: AppColors.successBg,
+                        child: Icon(Icons.data_object_rounded, color: AppColors.successText, size: 20),
+                      ),
+                      title: Text(b.fileName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      subtitle: Text(
+                        '${b.manifestSummary} | ${dateFormat.format(b.date)} | الحجم: $sizeMB MB',
+                        style: const TextStyle(fontSize: 11, color: AppColors.lightTextSecondary),
+                      ),
+                      trailing: const Icon(Icons.check_circle_outline_rounded, color: AppColors.success, size: 20),
+                    );
+                  },
+                ),
+              ),
           ],
         ),
       ),

@@ -5,6 +5,7 @@ import 'migrations/m002_catalog_inventory_schema.dart';
 import 'migrations/m003_sales_pos_accounting_schema.dart';
 import 'migrations/m004_purchasing_transfers_schema.dart';
 import 'migrations/m005_enterprise_features_schema.dart';
+import 'migrations/m006_system_settings_and_backup_schema.dart';
 
 class DatabaseService {
   final Database _db;
@@ -63,6 +64,7 @@ class DatabaseService {
       const M003SalesPosAccountingSchema(),
       const M004PurchasingTransfersSchema(),
       const M005EnterpriseFeaturesSchema(),
+      const M006SystemSettingsAndBackupSchema(),
     ]..sort((a, b) => a.version.compareTo(b.version));
 
     for (final migration in availableMigrations) {

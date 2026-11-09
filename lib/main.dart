@@ -30,6 +30,7 @@ void main() async {
         title: 'ALFA SOFT — Enterprise Resource Planning',
       );
       windowManager.waitUntilReadyToShow(windowOptions, () async {
+        await windowManager.setPreventClose(true);
         await windowManager.show();
         await windowManager.focus();
       });

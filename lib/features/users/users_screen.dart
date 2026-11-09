@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/user_repository.dart';
@@ -16,13 +17,14 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
   late TabController _tabController;
   List<UserEntity> _users = [];
   List<RoleEntity> _roles = [];
+  List<UserActivitySummary> _userReports = [];
   bool _isLoading = true;
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
   }
 
@@ -42,6 +44,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
         final companyId = compResult.first['id'] as String;
         _users = repo.getUsers(companyId);
         _roles = repo.getRoles(companyId);
+        _userReports = repo.getUserActivityReports(companyId);
       }
     } catch (_) {
     } finally {
@@ -57,6 +60,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
     final phoneController = TextEditingController();
     final emailController = TextEditingController();
     bool isAdmin = false;
+    String? selectedRoleId = _roles.isNotEmpty ? _roles.first.id : null;
 
     showDialog(
       context: context,
@@ -75,11 +79,11 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                 children: [
                   Icon(Icons.person_add_alt_1_rounded, color: AppColors.brandAccent),
                   SizedBox(width: 10),
-                  Text('إضافة مستخدم جديد للنظام', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('إضافة مستخدم جديد للنظام ومزامنته', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
               ),
               content: SizedBox(
-                width: 520,
+                width: 540,
                 child: Form(
                   key: formKey,
                   child: SingleChildScrollView(
@@ -131,7 +135,24 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 14),
+                        if (_roles.isNotEmpty) ...[
+                          DropdownButtonFormField<String>(
+                            initialValue: selectedRoleId,
+                            decoration: const InputDecoration(
+                              labelText: 'مجموعة الصلاحيات (الدور الوظيفي) *',
+                              prefixIcon: Icon(Icons.shield_outlined),
+                            ),
+                            items: _roles.map((r) {
+                              return DropdownMenuItem(
+                                value: r.id,
+                                child: Text('${r.name} (${r.permissions.length} صلاحيات)'),
+                              );
+                            }).toList(),
+                            onChanged: (v) => setDialogState(() => selectedRoleId = v),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
@@ -142,7 +163,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                           child: SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('صلاحيات إدارية كاملة (مدير عام)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            subtitle: const Text('الوصول لكافة فروع النظام، التقارير والإعدادات', style: TextStyle(fontSize: 11)),
+                            subtitle: const Text('إمكانية الوصول للإعدادات الحساسة، التراخيص وسجلات النظام', style: TextStyle(fontSize: 11)),
                             value: isAdmin,
                             onChanged: (v) => setDialogState(() => isAdmin = v),
                           ),
@@ -164,7 +185,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                     final repo = UserRepository(db);
                     final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
 
-                    repo.createUser(
+                    final newUser = repo.createUser(
                       companyId: companyId,
                       username: usernameController.text.trim(),
                       password: passwordController.text,
@@ -174,10 +195,21 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                       isAdmin: isAdmin,
                     );
 
+                    if (selectedRoleId != null) {
+                      repo.assignRoleToUser(newUser.id, selectedRoleId!);
+                    }
+
                     Navigator.pop(ctx);
                     _loadData();
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('تم إنشاء المستخدم "${newUser.username}" وتم جدولته للمزامنة التلقائية'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
                   },
-                  child: const Text('حفظ المستخدم'),
+                  child: const Text('حفظ ومزامنة المستخدم'),
                 ),
               ],
             );
@@ -187,13 +219,242 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
     );
   }
 
+  void _showCreateRoleDialog() {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    final selectedPermissions = <String>{'pos_checkout', 'inventory_view', 'reports_financial'};
+
+    final allPermissions = [
+      {'key': 'pos_checkout', 'title': 'إتمام المبيعات والفواتير (POS Cashier)'},
+      {'key': 'pos_discount', 'title': 'منح خصومات على الفاتورة وتعديل الأسعار'},
+      {'key': 'inventory_view', 'title': 'استعراض كتالوج المخزون والأسعار'},
+      {'key': 'inventory_adjust', 'title': 'إجراء التسويات والتحويلات المخزنية'},
+      {'key': 'purchases_create', 'title': 'إنشاء فواتير وأوامر الشراء والتوريد'},
+      {'key': 'accounting_journal', 'title': 'تسجيل ومطابقة القيود اليومية وسندات الصرف'},
+      {'key': 'reports_financial', 'title': 'الاطلاع على التقارير المالية والإقرارات'},
+      {'key': 'reports_user_sales', 'title': 'استعراض تقارير مبيعات المستخدمين والكاشير'},
+      {'key': 'users_manage', 'title': 'إدارة حسابات المستخدمين ومنح الصلاحيات'},
+      {'key': 'settings_manage', 'title': 'تعديل إعدادات المنشأة وطابعات الفواتير'},
+      {'key': 'backup_manage', 'title': 'إنشاء النسخ الاحتياطية وإدارة قاعدة البيانات'},
+    ];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppColors.lightBgSurface,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: AppColors.lightBorderSubtle),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.security_rounded, color: AppColors.brandPrimary),
+                  SizedBox(width: 10),
+                  Text('إنشاء مجموعة صلاحيات جديدة (Role)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: SizedBox(
+                width: 560,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextFormField(
+                          controller: nameController,
+                          decoration: const InputDecoration(labelText: 'اسم الدور الوظيفي (مثال: كاشير مسائي) *'),
+                          validator: (v) => v == null || v.trim().isEmpty ? 'مطلوب' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: descController,
+                          decoration: const InputDecoration(labelText: 'وصف مختصر للدور والمسؤوليات'),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'حدد الصلاحيات الممنوحة لهذا الدور:',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.lightTextPrimary),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.lightBgSubtle,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.lightBorderSubtle),
+                          ),
+                          child: Column(
+                            children: allPermissions.map((perm) {
+                              final key = perm['key']!;
+                              final isChecked = selectedPermissions.contains(key);
+                              return CheckboxListTile(
+                                dense: true,
+                                controlAffinity: ListTileControlAffinity.leading,
+                                title: Text(perm['title']!, style: const TextStyle(fontSize: 12)),
+                                value: isChecked,
+                                onChanged: (v) {
+                                  setDialogState(() {
+                                    if (v == true) {
+                                      selectedPermissions.add(key);
+                                    } else {
+                                      selectedPermissions.remove(key);
+                                    }
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('إلغاء', style: TextStyle(color: AppColors.lightTextSecondary)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (!formKey.currentState!.validate()) return;
+                    final db = ref.read(databaseServiceProvider);
+                    final repo = UserRepository(db);
+                    final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
+
+                    repo.createRole(
+                      companyId: companyId,
+                      name: nameController.text.trim(),
+                      description: descController.text.trim().isEmpty ? null : descController.text.trim(),
+                      permissions: selectedPermissions.toList(),
+                    );
+
+                    Navigator.pop(ctx);
+                    _loadData();
+                  },
+                  child: const Text('حفظ ومزامنة الدور'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showUserAuditTrailModal(UserActivitySummary summary) {
+    final db = ref.read(databaseServiceProvider);
+    final repo = UserRepository(db);
+    final auditLogs = repo.getUserAuditTrail(summary.userId, summary.username);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.lightBgSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (_, scrollController) {
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: AppColors.brandPrimary,
+                        child: Text(
+                          summary.username.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'سجل تدقيق نشاط: ${summary.fullName} (${summary.username})',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              'إجمالي العمليات المسجلة: ${auditLogs.length} عملية',
+                              style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: auditLogs.isEmpty
+                        ? const Center(child: Text('لا توجد عمليات مسجلة لهذا المستخدم حتى الآن'))
+                        : ListView.separated(
+                            controller: scrollController,
+                            itemCount: auditLogs.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final log = auditLogs[i];
+                              return ListTile(
+                                leading: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.infoBg,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.receipt_long_rounded, color: AppColors.infoText, size: 20),
+                                ),
+                                title: Text(
+                                  '${log['action']} — ${log['entity_name']}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                subtitle: Text(
+                                  log['new_state']?.toString() ?? 'بدون تفاصيل إضافية',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.lightTextSecondary),
+                                ),
+                                trailing: Text(
+                                  log['timestamp']?.toString() ?? '',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.lightTextMuted),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _toggleUserStatus(UserEntity user) {
-    try {
-      final db = ref.read(databaseServiceProvider);
-      final newStatus = user.isActive ? 0 : 1;
-      db.execute('UPDATE users SET is_active = ? WHERE id = ?', [newStatus, user.id]);
-      _loadData();
-    } catch (_) {}
+    final db = ref.read(databaseServiceProvider);
+    final repo = UserRepository(db);
+    repo.toggleUserStatus(user.id, !user.isActive);
+    _loadData();
   }
 
   @override
@@ -241,7 +502,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'إدارة المستخدمين والصلاحيات (Users & RBAC)',
+                        'إدارة المستخدمين والصلاحيات والتقارير (Users & RBAC Hub)',
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: AppColors.lightTextPrimary,
@@ -249,12 +510,18 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                       ),
                       const SizedBox(height: 2),
                       const Text(
-                        'إدارة حسابات الموظفين، تحديد الصلاحيات الدقيقة، ومراقبة نشاط الدخول إلى المنظومة',
+                        'إدارة الموظفين، تحديد الصلاحيات الدقيقة، مزامنة الشبكة التلقائية، وعرض تقارير المبيعات لكل مستخدم',
                         style: TextStyle(color: AppColors.lightTextSecondary, fontSize: 13),
                       ),
                     ],
                   ),
                 ),
+                OutlinedButton.icon(
+                  onPressed: _showCreateRoleDialog,
+                  icon: const Icon(Icons.shield_rounded, size: 18),
+                  label: const Text('إنشاء دور جديد'),
+                ),
+                const SizedBox(width: 12),
                 ElevatedButton.icon(
                   onPressed: _showAddUserDialog,
                   icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
@@ -296,17 +563,18 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                       tabs: [
                         Tab(text: 'حسابات المستخدمين (${_users.length})'),
                         Tab(text: 'الأدوار ومصفوفة الصلاحيات (${_roles.length})'),
+                        Tab(text: 'تقارير أداء ومبيعات المستخدمين (${_userReports.length})'),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(width: 16),
                 SizedBox(
-                  width: 320,
+                  width: 300,
                   child: TextField(
                     onChanged: (v) => setState(() => _searchQuery = v.trim()),
                     decoration: InputDecoration(
-                      hintText: 'بحث باسم المستخدم أو الاسم الكامل...',
+                      hintText: 'بحث باسم المستخدم أو الاسم...',
                       prefixIcon: const Icon(Icons.search_rounded, size: 20),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       fillColor: AppColors.lightBgSurface,
@@ -324,6 +592,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                 children: [
                   _buildUsersTab(filteredUsers),
                   _buildRolesTab(),
+                  _buildReportsTab(),
                 ],
               ),
             ),
@@ -379,14 +648,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
           border: Border.all(color: AppColors.lightBorderSubtle),
         ),
         child: const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.person_off_rounded, size: 48, color: AppColors.lightTextMuted),
-              SizedBox(height: 12),
-              Text('لم يتم العثور على أي مستخدمين مسجلين', style: TextStyle(color: AppColors.lightTextSecondary)),
-            ],
-          ),
+          child: Text('لم يتم العثور على أي مستخدمين مسجلين', style: TextStyle(color: AppColors.lightTextSecondary)),
         ),
       );
     }
@@ -528,43 +790,152 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
             ],
           ),
           padding: const EdgeInsets.all(18),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.brandPrimary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.security_rounded, color: AppColors.brandPrimary),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandPrimary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.security_rounded, color: AppColors.brandPrimary),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(role.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        const SizedBox(height: 2),
+                        Text(role.description ?? 'صلاحيات قياسية للنظام', style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.infoBg,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.info.withValues(alpha: 0.2)),
+                    ),
+                    child: Text(
+                      '${role.permissions.length} صلاحيات محددة',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.infoText),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(role.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                    const SizedBox(height: 2),
-                    Text(role.description ?? 'صلاحيات قياسية للنظام', style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
-                  ],
+              if (role.permissions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: role.permissions.map((p) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.lightBgSubtle,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppColors.lightBorderSubtle),
+                      ),
+                      child: Text(p, style: const TextStyle(fontSize: 10, color: AppColors.lightTextSecondary)),
+                    );
+                  }).toList(),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.infoBg,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.info.withValues(alpha: 0.2)),
-                ),
-                child: Text(
-                  '${role.permissions.length} صلاحيات محددة',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.infoText),
-                ),
-              ),
+              ],
             ],
           ),
         );
       },
+    );
+  }
+
+  // TAB 3: Per-User Performance & Sales Reports
+  Widget _buildReportsTab() {
+    final currencyFormat = NumberFormat('#,##0.00', 'en_US');
+
+    if (_userReports.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: AppColors.lightBgSurface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.lightBorderSubtle),
+        ),
+        child: const Center(
+          child: Text('لا توجد بيانات مبيعات أو نشاط مسجلة للمستخدمين حتى الآن'),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.lightBgSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.lightBorderSubtle),
+        boxShadow: const [
+          BoxShadow(color: Color(0x050F172A), blurRadius: 10, offset: Offset(0, 3)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: SingleChildScrollView(
+          child: DataTable(
+            headingRowColor: WidgetStateProperty.all(AppColors.lightBgSubtle),
+            columnSpacing: 20,
+            columns: const [
+              DataColumn(label: Text('المستخدم (الكاشير)', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('الاسم الكامل', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('عدد الفواتير', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('إجمالي المبيعات', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('المحصل نقدياً', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('متوسط الفاتورة', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('العمليات بالسجل', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('سجل النشاط', style: TextStyle(fontWeight: FontWeight.bold))),
+            ],
+            rows: _userReports.map((report) {
+              return DataRow(
+                cells: [
+                  DataCell(Text(report.username, style: const TextStyle(fontWeight: FontWeight.bold))),
+                  DataCell(Text(report.fullName)),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandAccent.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('${report.invoiceCount} فاتورة', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      '${currencyFormat.format(report.totalSales)} ر.س',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.successText),
+                    ),
+                  ),
+                  DataCell(Text('${currencyFormat.format(report.totalPaid)} ر.س')),
+                  DataCell(Text('${currencyFormat.format(report.avgInvoiceValue)} ر.س')),
+                  DataCell(Text('${report.auditCount} عملية')),
+                  DataCell(
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                      ),
+                      icon: const Icon(Icons.history_rounded, size: 16),
+                      label: const Text('سجل التدقيق', style: TextStyle(fontSize: 11)),
+                      onPressed: () => _showUserAuditTrailModal(report),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      ),
     );
   }
 }
