@@ -29,9 +29,9 @@ class UserEntity {
       fullName: map['full_name'] as String,
       phone: map['phone'] as String?,
       email: map['email'] as String?,
-      isAdmin: (map['is_admin'] as int) == 1,
-      isActive: (map['is_active'] as int) == 1,
-      createdAt: DateTime.parse(map['created_at'] as String),
+      isAdmin: (map['is_admin'] as int?) == 1,
+      isActive: (map['is_active'] as int?) == 1,
+      createdAt: DateTime.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.now(),
     );
   }
 }

@@ -7,8 +7,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/providers/app_state_provider.dart';
+import 'core/providers/auth_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'data/local/database_service.dart';
+import 'features/auth/login_screen.dart';
 import 'features/setup/first_run_wizard.dart';
 import 'features/shell/main_shell.dart';
 
@@ -137,6 +139,11 @@ class _AppRootDeciderState extends ConsumerState<_AppRootDecider> {
           });
         },
       );
+    }
+
+    final currentUser = ref.watch(currentUserProvider);
+    if (currentUser == null) {
+      return const LoginScreen();
     }
 
     return const MainShell();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/app_state_provider.dart';
+import '../../core/providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../pos/pos_screen.dart';
@@ -8,14 +9,12 @@ import '../inventory/products_screen.dart';
 import '../inventory/stock_transfers_screen.dart';
 import '../purchases/purchases_screen.dart';
 import '../partners/partners_screen.dart';
-import '../organization/organization_screen.dart';
 import '../users/users_screen.dart';
 import '../accounting/accounting_screen.dart';
 import '../reports/reports_screen.dart';
 import '../sync/sync_screen.dart';
-import '../migration/migration_screen.dart';
-import '../licensing/licensing_screen.dart';
 import '../enterprise/enterprise_screen.dart';
+import '../settings/settings_screen.dart';
 
 enum ShellNavSection {
   dashboard,
@@ -23,10 +22,11 @@ enum ShellNavSection {
   inventory,
   purchases,
   accounting,
-  enterprise,
-  reports,
-  sync,
   customers,
+  reports,
+  users,
+  enterprise,
+  sync,
   settings,
 }
 
@@ -48,21 +48,65 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 
   void _loadCompanyInfo() {
-    final db = ref.read(databaseServiceProvider);
-    final compResult = db.select('SELECT trade_name FROM companies LIMIT 1');
-    if (compResult.isNotEmpty) {
-      setState(() {
-        _companyName = compResult.first['trade_name'] as String;
-      });
-    }
+    try {
+      final db = ref.read(databaseServiceProvider);
+      final compResult = db.select('SELECT trade_name FROM companies LIMIT 1');
+      if (compResult.isNotEmpty) {
+        setState(() {
+          _companyName = compResult.first['trade_name'] as String;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.lightBgSurface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppColors.lightBorderSubtle),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.logout_rounded, color: AppColors.danger),
+            SizedBox(width: 10),
+            Text('تسجيل الخروج من المنظومة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: const Text(
+          'هل ترغب فعلاً في تسجيل الخروج والعودة لشاشة الدخول الرئيسية؟',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(color: AppColors.lightTextSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(currentUserProvider.notifier).logout();
+            },
+            child: const Text('تسجيل الخروج'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isDark = ref.watch(themeModeProvider) == ThemeMode.dark;
     final currentLocale = ref.watch(localeProvider);
     final isArabic = currentLocale.languageCode == 'ar';
+    final currentUser = ref.watch(currentUserProvider);
 
     // If POS is selected, open dedicated fullscreen checkout mode
     if (_activeSection == ShellNavSection.pos) {
@@ -72,31 +116,32 @@ class _MainShellState extends ConsumerState<MainShell> {
     }
 
     return Scaffold(
+      backgroundColor: AppColors.lightBgCanvas,
       body: Row(
         children: [
           // Collapsible Navigation Drawer
           NavigationRail(
             extended: true,
-            minExtendedWidth: 220,
-            backgroundColor: theme.colorScheme.surface,
+            minExtendedWidth: 230,
+            backgroundColor: AppColors.lightBgSurface,
             leading: Padding(
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Row(
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                     child: Image.asset(
                       'assets/images/app_logo.png',
-                      width: 36,
-                      height: 36,
+                      width: 40,
+                      height: 40,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: AppColors.brandAccent,
-                          borderRadius: BorderRadius.circular(8),
+                          color: AppColors.brandPrimary,
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.blur_on_rounded, color: Colors.white, size: 24),
+                        child: const Icon(Icons.corporate_fare_rounded, color: Colors.white, size: 24),
                       ),
                     ),
                   ),
@@ -106,18 +151,49 @@ class _MainShellState extends ConsumerState<MainShell> {
                     children: [
                       const Text(
                         'ALFA SOFT',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.brandPrimary),
                       ),
                       Text(
                         _companyName,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 11,
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          color: AppColors.lightTextSecondary,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
                 ],
+              ),
+            ),
+            trailing: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: _confirmLogout,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.dangerBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.2)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.logout_rounded, size: 16, color: AppColors.dangerText),
+                      SizedBox(width: 8),
+                      Text(
+                        'تسجيل الخروج',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.dangerText,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
             selectedIndex: _activeSection.index,
@@ -148,28 +224,32 @@ class _MainShellState extends ConsumerState<MainShell> {
                 label: Text('المحاسبة والقيود'),
               ),
               NavigationRailDestination(
-                icon: Icon(Icons.business_center_rounded),
-                label: Text('الجناح المؤسسي والرواتب'),
+                icon: Icon(Icons.people_alt_rounded),
+                label: Text('العملاء والموردون'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.print_rounded),
                 label: Text('التقارير والمستندات'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.manage_accounts_rounded),
+                label: Text('المستخدمون والصلاحيات'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.business_center_rounded),
+                label: Text('الجناح المؤسسي والرواتب'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.sync_rounded),
                 label: Text('المزامنة والشبكة'),
               ),
               NavigationRailDestination(
-                icon: Icon(Icons.people_alt_rounded),
-                label: Text('العملاء والموردون'),
-              ),
-              NavigationRailDestination(
                 icon: Icon(Icons.settings_rounded),
-                label: Text('إعدادات النظام'),
+                label: Text('إعدادات النظام الشاملة'),
               ),
             ],
           ),
-          const VerticalDivider(width: 1),
+          const VerticalDivider(width: 1, color: AppColors.lightBorderSubtle),
 
           // Main Screen Content Area
           Expanded(
@@ -177,11 +257,11 @@ class _MainShellState extends ConsumerState<MainShell> {
               children: [
                 // Top Application Bar
                 Container(
-                  height: 60,
+                  height: 64,
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    border: Border(bottom: BorderSide(color: theme.dividerColor)),
+                  decoration: const BoxDecoration(
+                    color: AppColors.lightBgSurface,
+                    border: Border(bottom: BorderSide(color: AppColors.lightBorderSubtle)),
                   ),
                   child: Row(
                     children: [
@@ -189,42 +269,48 @@ class _MainShellState extends ConsumerState<MainShell> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: AppColors.brandAccent.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
+                          color: AppColors.brandAccent.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.lightBorderSubtle),
                         ),
                         child: const Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.storefront_rounded, size: 16, color: AppColors.brandAccent),
                             SizedBox(width: 6),
                             Text(
-                              'الفرع الرئيسي (BR01)',
+                              'الفرع الرئيسي',
                               style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.brandAccent),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.brandPrimary,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
 
                       // Offline-Ready Indicator
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
+                          color: AppColors.successBg,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
                         ),
                         child: const Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.cloud_done_rounded, size: 16, color: AppColors.success),
+                            Icon(Icons.cloud_done_rounded, size: 16, color: AppColors.successText),
                             SizedBox(width: 6),
                             Text(
-                              'محلي جاهز (Offline Active)',
+                              'محلي جاهز',
                               style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.success),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.successText,
+                              ),
                             ),
                           ],
                         ),
@@ -232,16 +318,16 @@ class _MainShellState extends ConsumerState<MainShell> {
 
                       const Spacer(),
 
-                      // Theme Mode Toggle (Dark / Light)
+                      // Theme Mode Toggle
                       IconButton(
-                        icon: Icon(isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
+                        icon: Icon(isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded, size: 20),
                         tooltip: isDark ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن',
                         onPressed: () {
                           ref.read(themeModeProvider.notifier).toggleTheme();
                         },
                       ),
 
-                      // Language Toggle (Arabic / English)
+                      // Language Toggle
                       TextButton.icon(
                         icon: const Icon(Icons.language_rounded, size: 18),
                         label: Text(isArabic ? 'English' : 'العربية'),
@@ -251,11 +337,42 @@ class _MainShellState extends ConsumerState<MainShell> {
                       ),
                       const SizedBox(width: 8),
 
-                      // User Profile Avatar
-                      const CircleAvatar(
-                        radius: 16,
-                        backgroundColor: AppColors.brandAccent,
-                        child: Icon(Icons.person_rounded, size: 18, color: Colors.white),
+                      // User Profile Info Card
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.lightBgSubtle,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.lightBorderSubtle),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircleAvatar(
+                              radius: 13,
+                              backgroundColor: AppColors.brandPrimary,
+                              child: Text(
+                                (currentUser?.username.isNotEmpty == true)
+                                    ? currentUser!.username.substring(0, 1).toUpperCase()
+                                    : 'A',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              currentUser?.fullName ?? 'المدير العام',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.lightTextPrimary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+
+                      // Logout Top Button
+                      IconButton(
+                        icon: const Icon(Icons.logout_rounded, color: AppColors.danger, size: 20),
+                        tooltip: 'تسجيل الخروج',
+                        onPressed: _confirmLogout,
                       ),
                     ],
                   ),
@@ -287,16 +404,18 @@ class _MainShellState extends ConsumerState<MainShell> {
         return const PurchasesScreen();
       case ShellNavSection.accounting:
         return const AccountingScreen();
-      case ShellNavSection.enterprise:
-        return const EnterpriseScreen();
-      case ShellNavSection.reports:
-        return const ReportsScreen();
-      case ShellNavSection.sync:
-        return const SyncScreen();
       case ShellNavSection.customers:
         return const PartnersScreen();
+      case ShellNavSection.reports:
+        return const ReportsScreen();
+      case ShellNavSection.users:
+        return const UsersScreen();
+      case ShellNavSection.enterprise:
+        return const EnterpriseScreen();
+      case ShellNavSection.sync:
+        return const SyncScreen();
       case ShellNavSection.settings:
-        return const _SettingsContainer();
+        return const SettingsScreen();
     }
   }
 }
@@ -328,9 +447,12 @@ class _InventoryContainerState extends State<_InventoryContainer> with SingleTic
     return Column(
       children: [
         Container(
-          color: Theme.of(context).colorScheme.surface,
+          color: AppColors.lightBgSurface,
           child: TabBar(
             controller: _tabController,
+            indicatorColor: AppColors.brandAccent,
+            labelColor: AppColors.brandPrimary,
+            unselectedLabelColor: AppColors.lightTextSecondary,
             tabs: const [
               Tab(icon: Icon(Icons.inventory_2_rounded), text: 'كتالوج الأصناف والأسعار'),
               Tab(icon: Icon(Icons.swap_horiz_rounded), text: 'التحويلات والتسويات المخزنية'),
@@ -343,61 +465,6 @@ class _InventoryContainerState extends State<_InventoryContainer> with SingleTic
             children: const [
               ProductsScreen(),
               StockTransfersScreen(),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsContainer extends StatefulWidget {
-  const _SettingsContainer();
-
-  @override
-  State<_SettingsContainer> createState() => _SettingsContainerState();
-}
-
-class _SettingsContainerState extends State<_SettingsContainer> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          color: Theme.of(context).colorScheme.surface,
-          child: TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            tabs: const [
-              Tab(icon: Icon(Icons.business_rounded), text: 'الهيكل التنظيمي والفروع'),
-              Tab(icon: Icon(Icons.manage_accounts_rounded), text: 'المستخدمون والصلاحيات'),
-              Tab(icon: Icon(Icons.upload_file_rounded), text: 'مركز استيراد وترحيل البيانات'),
-              Tab(icon: Icon(Icons.verified_user_rounded), text: 'إدارة التراخيص وبوابة المطور'),
-            ],
-          ),
-        ),
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: const [
-              OrganizationScreen(),
-              UsersScreen(),
-              MigrationScreen(),
-              LicensingScreen(),
             ],
           ),
         ),

@@ -260,9 +260,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             children: [
                               const Icon(Icons.history_rounded, color: AppColors.info),
                               const SizedBox(width: 8),
-                              Text('سجل التدقيق الحي (Audit Log)',
-                                  style: theme.textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.bold)),
+                              Expanded(
+                                child: Text('سجل التدقيق الحي (Audit Log)',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
                             ],
                           ),
                           const SizedBox(height: 16),
