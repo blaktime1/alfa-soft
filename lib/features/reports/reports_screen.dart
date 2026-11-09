@@ -1,7 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:printing/printing.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/printing/esc_pos_builder.dart';
@@ -295,16 +296,167 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
       ),
     ];
 
-    return PdfPreview(
-      build: (format) => PdfInvoiceGenerator.generateTaxInvoice(header: header, items: items),
-      canChangeOrientation: false,
-      canChangePageFormat: false,
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.share_rounded),
-          onPressed: () => _showNotification('مشاركة الفاتورة الضريبية جاهزة'),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(header.companyName,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          Text('الرقم الضريبي: ${header.taxNumber}',
+                              style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                          Text('الفرع: ${header.branchName}',
+                              style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.success),
+                        ),
+                        child: const Text('ZATCA Phase-2 متوافق',
+                            style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 32),
+
+                  // Customer & Invoice Details
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('فاتورة إلى (العميل):', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text(header.customerName),
+                          Text('الرقم الضريبي: ${header.customerTaxNumber}'),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('رقم الفاتورة: ${header.invoiceNumber}',
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text('التاريخ: ${DateFormat('yyyy-MM-dd HH:mm').format(header.invoiceDate)}'),
+                          Text('طريقة السداد: ${header.paymentMethod}'),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Table
+                  Table(
+                    border: TableBorder.all(color: Colors.grey.shade300),
+                    children: [
+                      TableRow(
+                        decoration: BoxDecoration(color: Colors.grey.shade100),
+                        children: const [
+                          Padding(padding: EdgeInsets.all(8), child: Text('المنتج', style: TextStyle(fontWeight: FontWeight.bold))),
+                          Padding(padding: EdgeInsets.all(8), child: Text('الكمية', style: TextStyle(fontWeight: FontWeight.bold))),
+                          Padding(padding: EdgeInsets.all(8), child: Text('السعر', style: TextStyle(fontWeight: FontWeight.bold))),
+                          Padding(padding: EdgeInsets.all(8), child: Text('الضريبة', style: TextStyle(fontWeight: FontWeight.bold))),
+                          Padding(padding: EdgeInsets.all(8), child: Text('الإجمالي', style: TextStyle(fontWeight: FontWeight.bold))),
+                        ],
+                      ),
+                      ...items.map((it) => TableRow(
+                        children: [
+                          Padding(padding: const EdgeInsets.all(8), child: Text(it.productName)),
+                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.quantity} ${it.unitName}')),
+                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.unitPrice.toStringAsFixed(2)} ر.س')),
+                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.taxAmount.toStringAsFixed(2)} ر.س')),
+                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.lineTotal.toStringAsFixed(2)} ر.س')),
+                        ],
+                      )),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Financial Totals
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: 280,
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('المجموع الخاضع للضريبة:'),
+                              Text('${header.subtotal.toStringAsFixed(2)} ر.س'),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('ضريبة القيمة المضافة (15%):'),
+                              Text('${header.taxTotal.toStringAsFixed(2)} ر.س'),
+                            ],
+                          ),
+                          const Divider(height: 16),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('المبلغ الإجمالي المستحق:',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              Text('${header.grandTotal.toStringAsFixed(2)} ر.س',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.brandAccent)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Export Action Button
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.brandAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    label: const Text('تصدير وحفظ الفاتورة بصيغة PDF مع رمز ZATCA QR',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    onPressed: () async {
+                      try {
+                        final bytes = await PdfInvoiceGenerator.generateTaxInvoice(header: header, items: items);
+                        final dir = await getApplicationDocumentsDirectory();
+                        final file = File('${dir.path}/INV_${header.invoiceNumber}.pdf');
+                        await file.writeAsBytes(bytes);
+                        _showNotification('تم تصدير الفاتورة بنجاح: ${file.path}');
+                      } catch (e) {
+                        _showNotification('خطأ في تصدير الفاتورة: $e', isSuccess: false);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
-      ],
+      ),
     );
   }
 
