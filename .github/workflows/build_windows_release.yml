@@ -1,0 +1,55 @@
+name: Build ALFA SOFT Windows Release
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Compile & Package Windows Executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter Environment
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter & Windows Toolchain
+        run: flutter doctor -v
+
+      - name: Install Project Dependencies
+        run: flutter pub get
+
+      - name: Run Automated Test Verification
+        run: flutter test
+
+      - name: Compile Native Windows C++ Release Binary
+        run: flutter build windows --release
+
+      - name: Install Inno Setup Compiler
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Standalone Windows Installer (.exe)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\alfa_soft_setup.iss
+
+      - name: Upload Installer Executable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlfaSoft-Setup-v1.0.0-x64
+          path: dist/AlfaSoft-Setup-1.0.0-x64.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Portable Zip Package (Optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlfaSoft-Portable-v1.0.0-x64
+          path: build/windows/x64/runner/Release/
+          retention-days: 30
