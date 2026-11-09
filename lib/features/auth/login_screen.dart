@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
+import 'package:printing/printing.dart';
+import '../../core/printing/printer_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -22,6 +24,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String _companyName = 'ALFA SOFT';
   List<Map<String, String>> _branches = [];
   String? _selectedBranchId;
+  List<Printer> _availablePrinters = [];
+  String? _selectedPrinterName;
 
   @override
   void initState() {
@@ -53,11 +57,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }).toList();
         _selectedBranchId = _branches.first['id'];
       }
+
+      final printerService = PrinterService(db);
+      final savedPrinter = printerService.getSelectedPrinter();
+      Printing.listPrinters().then((printers) {
+        if (mounted) {
+          setState(() {
+            _availablePrinters = printers;
+            if (savedPrinter != null && printers.any((p) => p.name == savedPrinter)) {
+              _selectedPrinterName = savedPrinter;
+            } else if (printers.any((p) => p.isDefault)) {
+              _selectedPrinterName = printers.firstWhere((p) => p.isDefault).name;
+            } else if (printers.isNotEmpty) {
+              _selectedPrinterName = printers.first.name;
+            }
+          });
+        }
+      }).catchError((_) {});
     } catch (_) {}
   }
 
   void _handleLogin() {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_selectedPrinterName != null) {
+      try {
+        final db = ref.read(databaseServiceProvider);
+        PrinterService(db).setSelectedPrinter(_selectedPrinterName);
+      } catch (_) {}
+    }
 
     setState(() {
       _isLoading = true;
@@ -364,9 +392,54 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 if (v != null) setState(() => _selectedBranchId = v);
                               },
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 16),
                           ] else
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 8),
+
+                          // POS Printer Selector
+                          Text(
+                            'طابعة فواتير الكاشير (POS Printer)',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.lightTextPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedPrinterName,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              prefixIcon: Icon(Icons.print_rounded, color: AppColors.lightTextSecondary),
+                              hintText: 'اختر طابعة الفواتير المعتمدة',
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('معاينة النظام الافتراضية (PDF)', style: TextStyle(fontSize: 13, color: AppColors.lightTextSecondary)),
+                              ),
+                              ..._availablePrinters.map((p) {
+                                return DropdownMenuItem(
+                                  value: p.name,
+                                  child: Text(
+                                    '${p.name}${p.isDefault ? ' (الافتراضية)' : ''}',
+                                    style: const TextStyle(fontSize: 13),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                );
+                              }),
+                            ],
+                            onChanged: (v) {
+                              setState(() => _selectedPrinterName = v);
+                              if (v != null) {
+                                try {
+                                  final db = ref.read(databaseServiceProvider);
+                                  PrinterService(db).setSelectedPrinter(v);
+                                } catch (_) {}
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 24),
 
                           // Submit Login Button
                           SizedBox(

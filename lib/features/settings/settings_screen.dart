@@ -8,6 +8,10 @@ import '../../core/theme/app_colors.dart';
 import '../organization/organization_screen.dart';
 import '../migration/migration_screen.dart';
 import '../licensing/licensing_screen.dart';
+import 'package:printing/printing.dart';
+import '../../core/printing/printer_service.dart';
+import '../../data/repositories/catalog_repository.dart';
+import '../../domain/entities/catalog.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -18,6 +22,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  String _companyId = '';
 
   // Company Form Controllers
   final _legalNameController = TextEditingController();
@@ -30,11 +35,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   // POS / Printer Controllers
   bool _is80mm = true;
   bool _autoPrint = true;
+  bool _printCustomerCopy = true;
+  bool _printCashierCopy = false;
+  String? _selectedPrinterName;
+  List<Printer> _availablePrinters = [];
   bool _autoCut = true;
   bool _drawerKick = true;
   bool _showZatcaQr = true;
   final _receiptHeaderController = TextEditingController(text: 'أهلاً بكم في منظومة ألفا سوفت');
   final _receiptFooterController = TextEditingController(text: 'شكراً لتعاملكم معنا • البضاعة المباعة تستبدل خلال 3 أيام');
+
+  // Units Management
+  List<UnitEntity> _unitsList = [];
 
   // DB Metrics & Backup
   int _tableCount = 0;
@@ -48,8 +60,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 7, vsync: this);
+    _tabController = TabController(length: 8, vsync: this);
     _loadCompanyData();
+    _loadPrinterSettings();
     _loadDbMetrics();
     _loadBackupSettings();
   }
@@ -75,10 +88,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
       final rows = db.select('SELECT * FROM companies LIMIT 1');
       if (rows.isNotEmpty) {
         final c = rows.first;
+        _companyId = c['id'] as String;
         _legalNameController.text = (c['legal_name'] as String?) ?? '';
         _tradeNameController.text = (c['trade_name'] as String?) ?? '';
         _taxNumberController.text = (c['tax_number'] as String?) ?? '';
+        _loadUnits();
       }
+    } catch (_) {}
+  }
+
+  void _loadPrinterSettings() {
+    try {
+      final db = ref.read(databaseServiceProvider);
+      final ps = PrinterService(db);
+      setState(() {
+        _selectedPrinterName = ps.getSelectedPrinter();
+        _autoPrint = ps.isAutoPrintEnabled();
+        _printCustomerCopy = ps.isCustomerCopyEnabled();
+        _printCashierCopy = ps.isCashierCopyEnabled();
+        _is80mm = ps.getPaperSize() == '80mm';
+      });
+
+      Printing.listPrinters().then((printers) {
+        if (mounted) {
+          setState(() {
+            _availablePrinters = printers;
+            if (_selectedPrinterName == null && printers.isNotEmpty) {
+              if (printers.any((p) => p.isDefault)) {
+                _selectedPrinterName = printers.firstWhere((p) => p.isDefault).name;
+              } else {
+                _selectedPrinterName = printers.first.name;
+              }
+            }
+          });
+        }
+      }).catchError((_) {});
+    } catch (_) {}
+  }
+
+  void _loadUnits() {
+    if (_companyId.isEmpty) return;
+    try {
+      final db = ref.read(databaseServiceProvider);
+      final repo = CatalogRepository(db);
+      setState(() {
+        _unitsList = repo.getUnits(_companyId);
+      });
     } catch (_) {}
   }
 
@@ -294,6 +349,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   Tab(icon: Icon(Icons.business_rounded, size: 18), text: 'بيانات المنشأة والهوية'),
                   Tab(icon: Icon(Icons.account_tree_rounded, size: 18), text: 'الهيكل التنظيمي والفروع'),
                   Tab(icon: Icon(Icons.print_rounded, size: 18), text: 'نقاط البيع وطابعات الفواتير'),
+                  Tab(icon: Icon(Icons.straighten_rounded, size: 18), text: 'وحدات القياس والبيع'),
                   Tab(icon: Icon(Icons.storage_rounded, size: 18), text: 'النسخ الاحتياطي والأمان'),
                   Tab(icon: Icon(Icons.upload_file_rounded, size: 18), text: 'استيراد وترحيل البيانات'),
                   Tab(icon: Icon(Icons.verified_user_rounded, size: 18), text: 'إدارة التراخيص'),
@@ -311,6 +367,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   _buildCompanyTab(),
                   const OrganizationScreen(),
                   _buildPrinterTab(),
+                  _buildUnitsTab(),
                   _buildBackupTab(),
                   const MigrationScreen(),
                   const LicensingScreen(),
@@ -515,6 +572,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             const Divider(),
             const SizedBox(height: 20),
 
+            const Text('طابعة فواتير الكاشير المعتمدة لنقطة البيع:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: _selectedPrinterName,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.print_rounded, color: AppColors.brandPrimary),
+                hintText: 'اختر الطابعة من بين طابعات النظام',
+              ),
+              items: [
+                const DropdownMenuItem(
+                  value: '',
+                  child: Text('معاينة النظام (PDF الافتراضية)', style: TextStyle(fontSize: 13, color: AppColors.lightTextSecondary)),
+                ),
+                ..._availablePrinters.map((p) => DropdownMenuItem(
+                  value: p.name,
+                  child: Text(
+                    '${p.name}${p.isDefault ? ' (الافتراضية)' : ''}',
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )),
+              ],
+              onChanged: (v) {
+                setState(() => _selectedPrinterName = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setSelectedPrinter(v);
+              },
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 12),
+
             const Text('عرض ورق الإيصال الحراري:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
             const SizedBox(height: 12),
             Row(
@@ -522,7 +612,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                 Expanded(
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () => setState(() => _is80mm = true),
+                    onTap: () {
+                      setState(() => _is80mm = true);
+                      final db = ref.read(databaseServiceProvider);
+                      PrinterService(db).setPaperSize('80mm');
+                    },
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -553,7 +647,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                 Expanded(
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () => setState(() => _is80mm = false),
+                    onTap: () {
+                      setState(() => _is80mm = false);
+                      final db = ref.read(databaseServiceProvider);
+                      PrinterService(db).setPaperSize('58mm');
+                    },
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -586,10 +684,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
 
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('الطباعة التلقائية فور سداد الفاتورة'),
-              subtitle: const Text('إرسال الفاتورة للطابعة مباشرة عند إتمام الدفع في شاشة الكاشير'),
+              title: const Text('الطباعة التلقائية المباشرة فور سداد الفاتورة'),
+              subtitle: const Text('إرسال الفاتورة للطابعة مباشرة عند إتمام الدفع في شاشة الكاشير دون الحاجة لتأكيد يدوي'),
               value: _autoPrint,
-              onChanged: (v) => setState(() => _autoPrint = v),
+              onChanged: (v) {
+                setState(() => _autoPrint = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setAutoPrintEnabled(v);
+              },
+            ),
+            const Divider(),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('طباعة نسخة العميل (Customer Copy)'),
+              subtitle: const Text('طباعة إيصال يحمل وسم [نسخة العميل] مع باركود هيئة الزكاة والضريبة والجمارك ZATCA'),
+              value: _printCustomerCopy,
+              onChanged: (v) {
+                setState(() => _printCustomerCopy = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setCustomerCopyEnabled(v);
+              },
+            ),
+            const Divider(),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('طباعة نسخة الكاشير / المحل (Store Copy)'),
+              subtitle: const Text('طباعة نسخة ثانية خاصة بالإدارة ودرج الكاشير للتوثيق والمطابقة المحاسبية'),
+              value: _printCashierCopy,
+              onChanged: (v) {
+                setState(() => _printCashierCopy = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setCashierCopyEnabled(v);
+              },
             ),
             const Divider(),
             SwitchListTile(
@@ -627,6 +753,264 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
           ],
         ),
       ),
+    );
+  }
+
+  // TAB 4: Units Management
+  Widget _buildUnitsTab() {
+    return SingleChildScrollView(
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.lightBgSurface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.lightBorderSubtle),
+          boxShadow: const [
+            BoxShadow(color: Color(0x050F172A), blurRadius: 12, offset: Offset(0, 4)),
+          ],
+        ),
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'إدارة وحدات القياس والبيع (Units of Measurement)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.lightTextPrimary),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'تحديد وتفعيل وحدات البيع (كرتون جملة، كيلو، حبة، لتر، درزن، باكت، كيس...) وتعيينها للأصناف.',
+                      style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                    ),
+                  ],
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('إضافة وحدة قياس جديدة'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.brandPrimary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  onPressed: () => _showAddEditUnitDialog(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 16),
+
+            if (_unitsList.isEmpty)
+              const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('لا توجد وحدات قياس مضافة')))
+            else
+              DataTable(
+                columns: const [
+                  DataColumn(label: Text('رمز الوحدة (Code)', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('اسم الوحدة بالعربية', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('النوع / الاستخدام الافتراضي', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('الإجراءات', style: TextStyle(fontWeight: FontWeight.bold))),
+                ],
+                rows: _unitsList.map((u) {
+                  final isCtn = u.code == 'CTN';
+                  final isWeight = u.code == 'KG' || u.code == 'G';
+                  final isVolume = u.code == 'L';
+                  final desc = isCtn
+                      ? 'وحدة جملة وطرود'
+                      : (isWeight ? 'وحدة وزن وموازين' : (isVolume ? 'وحدة سوائل وحجم' : 'وحدة تجزئة وعدّ'));
+
+                  return DataRow(
+                    cells: [
+                      DataCell(
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandPrimary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(u.code, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      DataCell(Text(u.name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                      DataCell(
+                        Row(
+                          children: [
+                            Icon(
+                              isCtn ? Icons.inventory_2_outlined : (isWeight ? Icons.scale_rounded : Icons.category_outlined),
+                              size: 16,
+                              color: AppColors.lightTextSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(desc, style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                          ],
+                        ),
+                      ),
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.brandAccent),
+                              tooltip: 'تعديل الوحدة',
+                              onPressed: () => _showAddEditUnitDialog(existingUnit: u),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                              tooltip: 'حذف الوحدة',
+                              onPressed: () => _confirmDeleteUnit(u),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddEditUnitDialog({UnitEntity? existingUnit}) {
+    final codeCtrl = TextEditingController(text: existingUnit?.code ?? '');
+    final nameCtrl = TextEditingController(text: existingUnit?.name ?? '');
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(existingUnit == null ? Icons.add_circle_outline_rounded : Icons.edit_note_rounded, color: AppColors.brandPrimary),
+              const SizedBox(width: 8),
+              Text(existingUnit == null ? 'إضافة وحدة قياس جديدة' : 'تعديل وحدة القياس', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ],
+          ),
+          content: Form(
+            key: formKey,
+            child: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: codeCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'رمز الوحدة (Code)',
+                      hintText: 'مثال: KG, CTN, DZN, PCS, L',
+                      prefixIcon: Icon(Icons.qr_code_rounded),
+                    ),
+                    textCapitalization: TextCapitalization.characters,
+                    validator: (v) => v == null || v.trim().isEmpty ? 'يرجى إدخال رمز الوحدة' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'اسم الوحدة بالعربية',
+                      hintText: 'مثال: كرتون جملة، كيلو جرام، لتر، درزن',
+                      prefixIcon: Icon(Icons.straighten_rounded),
+                    ),
+                    validator: (v) => v == null || v.trim().isEmpty ? 'يرجى إدخال اسم الوحدة' : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.brandPrimary,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                if (!formKey.currentState!.validate()) return;
+                try {
+                  final db = ref.read(databaseServiceProvider);
+                  final repo = CatalogRepository(db);
+                  if (existingUnit == null) {
+                    repo.createUnit(
+                      companyId: _companyId,
+                      code: codeCtrl.text.trim(),
+                      name: nameCtrl.text.trim(),
+                    );
+                  } else {
+                    repo.updateUnit(
+                      id: existingUnit.id,
+                      code: codeCtrl.text.trim(),
+                      name: nameCtrl.text.trim(),
+                    );
+                  }
+                  Navigator.pop(ctx);
+                  _loadUnits();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تم حفظ وحدة القياس بنجاح!'), backgroundColor: AppColors.success),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('خطأ: $e'), backgroundColor: AppColors.danger),
+                  );
+                }
+              },
+              child: const Text('حفظ الوحدة'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteUnit(UnitEntity unit) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.danger),
+              SizedBox(width: 8),
+              Text('تأكيد حذف الوحدة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ],
+          ),
+          content: Text('هل أنت متأكد من حذف وحدة القياس "${unit.name} (${unit.code})"؟'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+              onPressed: () {
+                try {
+                  final db = ref.read(databaseServiceProvider);
+                  final repo = CatalogRepository(db);
+                  repo.deleteUnit(unit.id);
+                  Navigator.pop(ctx);
+                  _loadUnits();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تم حذف وحدة القياس بنجاح!'), backgroundColor: AppColors.success),
+                  );
+                } catch (e) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('فشل الحذف: $e'), backgroundColor: AppColors.danger),
+                  );
+                }
+              },
+              child: const Text('تأكيد الحذف'),
+            ),
+          ],
+        );
+      },
     );
   }
 

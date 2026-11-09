@@ -275,4 +275,178 @@ class PdfInvoiceGenerator {
       ],
     );
   }
+
+  /// Compact ESC/POS-compatible 80mm/58mm Thermal Receipt Generator
+  static Future<Uint8List> generateThermalReceipt({
+    required InvoiceHeaderDto header,
+    required List<InvoiceItemDto> items,
+    String copyLabel = 'نسخة العميل — Customer Copy',
+    bool is80mm = true,
+  }) async {
+    final pdf = pw.Document();
+    final pageFormat = is80mm ? PdfPageFormat.roll80 : PdfPageFormat.roll57;
+
+    final zatcaPayload = ZatcaQrCodec.generateBase64Tlv(
+      sellerName: header.companyName,
+      vatRegistrationNumber: header.taxNumber,
+      timestamp: header.invoiceDate,
+      invoiceTotal: header.grandTotal,
+      vatTotal: header.taxTotal,
+    );
+
+    final dateFormat = DateFormat('yyyy/MM/dd - hh:mm a');
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              // 1. Header
+              pw.Center(
+                child: pw.Text(
+                  header.companyName,
+                  style: pw.TextStyle(fontSize: is80mm ? 13 : 11, fontWeight: pw.FontWeight.bold),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              pw.Center(
+                child: pw.Text(
+                  'الفرع: ${header.branchName}',
+                  style: const pw.TextStyle(fontSize: 8.5),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+              pw.Center(
+                child: pw.Text(
+                  'الرقم الضريبي: ${header.taxNumber}',
+                  style: const pw.TextStyle(fontSize: 8),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+
+              // 2. Dual-copy Badge
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.black, width: 0.8),
+                  borderRadius: pw.BorderRadius.circular(3),
+                ),
+                child: pw.Center(
+                  child: pw.Text(
+                    '[ $copyLabel ]',
+                    style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+                  ),
+                ),
+              ),
+              pw.SizedBox(height: 4),
+
+              // 3. Invoice Meta
+              pw.Text('رقم الفاتورة: ${header.invoiceNumber}', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('التاريخ: ${dateFormat.format(header.invoiceDate)}', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('العميل: ${header.customerName}', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('طريقة الدفع: ${header.paymentMethod}', style: const pw.TextStyle(fontSize: 8)),
+              pw.SizedBox(height: 3),
+              pw.Divider(thickness: 0.5, borderStyle: pw.BorderStyle.dashed),
+
+              // 4. Line Items Table
+              pw.Row(
+                children: [
+                  pw.Expanded(flex: 5, child: pw.Text('الصنف', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold))),
+                  pw.Expanded(flex: 2, child: pw.Text('الكمية', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
+                  pw.Expanded(flex: 2, child: pw.Text('السعر', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
+                  pw.Expanded(flex: 2, child: pw.Text('الإجمالي', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right)),
+                ],
+              ),
+              pw.Divider(thickness: 0.5),
+
+              ...items.map((item) {
+                return pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
+                  child: pw.Row(
+                    children: [
+                      pw.Expanded(
+                        flex: 5,
+                        child: pw.Text(
+                          '${item.productName} (${item.unitName})',
+                          style: const pw.TextStyle(fontSize: 7),
+                        ),
+                      ),
+                      pw.Expanded(
+                        flex: 2,
+                        child: pw.Text('${item.quantity}', style: const pw.TextStyle(fontSize: 7), textAlign: pw.TextAlign.center),
+                      ),
+                      pw.Expanded(
+                        flex: 2,
+                        child: pw.Text(item.unitPrice.toStringAsFixed(2), style: const pw.TextStyle(fontSize: 7), textAlign: pw.TextAlign.center),
+                      ),
+                      pw.Expanded(
+                        flex: 2,
+                        child: pw.Text(item.lineTotal.toStringAsFixed(2), style: const pw.TextStyle(fontSize: 7), textAlign: pw.TextAlign.right),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+
+              pw.Divider(thickness: 0.5, borderStyle: pw.BorderStyle.dashed),
+              pw.SizedBox(height: 2),
+
+              // 5. Financial Summary
+              _thermalSummaryRow('المجموع قبل الضريبة:', '${header.subtotal.toStringAsFixed(2)} SAR'),
+              _thermalSummaryRow('ضريبة القيمة المضافة (15%):', '${header.taxTotal.toStringAsFixed(2)} SAR'),
+              pw.Divider(thickness: 0.5),
+              _thermalSummaryRow('الإجمالي النهائي:', '${header.grandTotal.toStringAsFixed(2)} SAR', isBold: true, fontSize: 9.5),
+              pw.SizedBox(height: 6),
+
+              // 6. ZATCA QR
+              pw.Center(
+                child: pw.BarcodeWidget(
+                  barcode: pw.Barcode.qrCode(),
+                  data: zatcaPayload,
+                  width: is80mm ? 70 : 55,
+                  height: is80mm ? 70 : 55,
+                ),
+              ),
+              pw.SizedBox(height: 3),
+              pw.Center(
+                child: pw.Text(
+                  'شكراً لزيارتكم • البضاعة المباعة تستبدل خلال 3 أيام',
+                  style: const pw.TextStyle(fontSize: 6.5),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+              pw.Center(
+                child: pw.Text(
+                  'نظام الفا سوفت — ALFA SOFT POS',
+                  style: pw.TextStyle(fontSize: 6.5, fontWeight: pw.FontWeight.bold),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static pw.Widget _thermalSummaryRow(String label, String value, {bool isBold = false, double fontSize = 7.5}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 0.5),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label, style: pw.TextStyle(fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+          pw.Text(value, style: pw.TextStyle(fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+        ],
+      ),
+    );
+  }
 }

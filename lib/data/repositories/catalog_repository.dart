@@ -10,8 +10,35 @@ class CatalogRepository {
   CatalogRepository(this._db) : _outbox = OutboxManager(_db);
 
   List<UnitEntity> getUnits(String companyId) {
+    seedDefaultUnitsIfEmpty(companyId);
     final result = _db.select('SELECT * FROM units WHERE company_id = ? ORDER BY code ASC', [companyId]);
     return result.map((r) => UnitEntity.fromMap(Map<String, dynamic>.from(r))).toList();
+  }
+
+  void seedDefaultUnitsIfEmpty(String companyId) {
+    try {
+      final count = _db.select('SELECT COUNT(*) as cnt FROM units WHERE company_id = ?', [companyId]).first['cnt'] as int;
+      if (count == 0) {
+        final standardUnits = [
+          ['unit_pcs', 'PCS', 'حبة / قطعة'],
+          ['unit_ctn', 'CTN', 'كرتون جملة'],
+          ['unit_kg', 'KG', 'كيلو جرام (كجم)'],
+          ['unit_g', 'G', 'جرام (جم)'],
+          ['unit_l', 'L', 'لتر (L)'],
+          ['unit_dzn', 'DZN', 'درزن (12 حبة)'],
+          ['unit_bag', 'BAG', 'كيس / شوال'],
+          ['unit_pck', 'PCK', 'شدة / باكت'],
+          ['unit_m', 'M', 'متر (M)'],
+        ];
+
+        for (final u in standardUnits) {
+          _db.execute('''
+            INSERT OR IGNORE INTO units (id, company_id, code, name)
+            VALUES (?, ?, ?, ?)
+          ''', [u[0], companyId, u[1], u[2]]);
+        }
+      }
+    } catch (_) {}
   }
 
   UnitEntity createUnit({
@@ -25,9 +52,27 @@ class CatalogRepository {
     _db.execute('''
       INSERT INTO units (id, company_id, code, name)
       VALUES (?, ?, ?, ?)
-    ''', [id, companyId, code.trim(), name.trim()]);
+    ''', [id, companyId, code.trim().toUpperCase(), name.trim()]);
 
-    return UnitEntity(id: id, companyId: companyId, code: code, name: name);
+    return UnitEntity(id: id, companyId: companyId, code: code.toUpperCase(), name: name);
+  }
+
+  void updateUnit({
+    required String id,
+    required String code,
+    required String name,
+  }) {
+    _db.execute('''
+      UPDATE units SET code = ?, name = ? WHERE id = ?
+    ''', [code.trim().toUpperCase(), name.trim(), id]);
+  }
+
+  void deleteUnit(String id) {
+    final inUse = _db.select('SELECT COUNT(*) as cnt FROM products WHERE base_unit_id = ?', [id]).first['cnt'] as int;
+    if (inUse > 0) {
+      throw ArgumentError('لا يمكن حذف هذه الوحدة لأنها مستخدمة كوحدة أساسية في $inUse صنف في المخزون');
+    }
+    _db.execute('DELETE FROM units WHERE id = ?', [id]);
   }
 
   List<CategoryEntity> getCategories(String companyId) {

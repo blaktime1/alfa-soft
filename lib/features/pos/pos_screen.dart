@@ -7,11 +7,15 @@ import '../../core/math/vat_calculator.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/sync/outbox_manager.dart';
 import '../../core/theme/app_colors.dart';
+import 'package:printing/printing.dart';
+import '../../core/printing/printer_service.dart';
+import '../../core/printing/pdf_invoice_generator.dart';
 
 class CartItem {
   final String productId;
   final String name;
   final String sku;
+  final String unitName;
   final int retailPriceCents;
   final int wholesalePriceCents;
   final int costPriceCents;
@@ -25,6 +29,7 @@ class CartItem {
     required this.productId,
     required this.name,
     required this.sku,
+    this.unitName = 'حبة',
     required this.retailPriceCents,
     required this.wholesalePriceCents,
     required this.costPriceCents,
@@ -152,11 +157,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final result = db.select('''
       SELECT p.id, p.sku, p.barcode, p.name_ar, p.sale_price, p.min_sale_price, p.cost_price,
              p.units_per_carton, p.carton_price, p.carton_cost_price, p.carton_barcode,
+             COALESCE(u.name, 'حبة') as unit_name,
              COALESCE(ib.quantity, 0) as stock_qty,
              wpp.sale_price as wh_sale_price,
              wpp.wholesale_price as wh_wholesale_price,
              wpp.carton_price as wh_carton_price
       FROM products p
+      LEFT JOIN units u ON u.id = p.base_unit_id
       LEFT JOIN inventory_balances ib ON ib.product_id = p.id AND ib.warehouse_id = ?
       LEFT JOIN warehouse_product_prices wpp ON wpp.product_id = p.id AND wpp.warehouse_id = ?
       WHERE p.is_active = 1 
@@ -177,10 +184,12 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final match = db.select('''
       SELECT p.id, p.sku, p.barcode, p.name_ar, p.sale_price, p.min_sale_price, p.cost_price,
              p.units_per_carton, p.carton_price, p.carton_cost_price, p.carton_barcode,
+             COALESCE(u.name, 'حبة') as unit_name,
              wpp.sale_price as wh_sale_price,
              wpp.wholesale_price as wh_wholesale_price,
              wpp.carton_price as wh_carton_price
       FROM products p
+      LEFT JOIN units u ON u.id = p.base_unit_id
       LEFT JOIN warehouse_product_prices wpp ON wpp.product_id = p.id AND wpp.warehouse_id = ?
       WHERE p.is_active = 1 AND (p.barcode = ? OR p.carton_barcode = ? OR p.sku = ? OR p.name_ar LIKE ?)
       LIMIT 1
@@ -209,11 +218,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         final baseMin = product['wh_wholesale_price'] as int? ?? product['min_sale_price'] as int? ?? baseSale;
         final whCarton = product['wh_carton_price'] as int? ?? product['carton_price'] as int? ?? 0;
         final unitsPerCarton = product['units_per_carton'] as int? ?? 1;
+        final unitName = (product['unit_name'] as String?) ?? 'حبة';
 
         _cart.add(CartItem(
           productId: productId,
           name: product['name_ar'] as String,
           sku: product['sku'] as String,
+          unitName: unitName,
           retailPriceCents: baseSale,
           wholesalePriceCents: baseMin > 0 ? baseMin : baseSale,
           costPriceCents: product['cost_price'] as int? ?? 0,
@@ -224,9 +235,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           quantity: 1,
         ));
       }
+      final uName = (product['unit_name'] as String?) ?? 'حبة';
       _lastMessage = addAsCarton
           ? 'تمت إضافة كرتون: ${product['name_ar']}'
-          : 'تمت إضافة حبة: ${product['name_ar']}';
+          : 'تمت إضافة $uName: ${product['name_ar']}';
     });
   }
 
@@ -265,7 +277,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       // Determine customer
       String resolvedCustomerId = selectedCustomerId ?? '';
       if (resolvedCustomerId.isEmpty) {
-        final custCheck = db.select('SELECT id FROM customers WHERE company_id = ? AND code = "WALK_IN"', [companyId]);
+        final custCheck = db.select('SELECT id FROM customers WHERE company_id = ? AND code = ?', [companyId, 'WALK_IN']);
         if (custCheck.isEmpty) {
           resolvedCustomerId = 'cust_${uuid.v4()}';
           db.execute('''
@@ -437,13 +449,59 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         );
       } catch (_) {}
 
+      // 8. Auto-print Invoice (Dual-copy: Customer & Cashier)
+      final printerService = PrinterService(db);
+      final isAutoPrint = printerService.isAutoPrintEnabled();
+      if (isAutoPrint) {
+        try {
+          final compRow = db.select('SELECT legal_name, trade_name, tax_number, commercial_registration FROM companies WHERE id = ?', [companyId]).first;
+          final brRow = db.select('SELECT name FROM branches WHERE id = ?', [branchId]).first;
+
+          final headerDto = InvoiceHeaderDto(
+            companyName: (compRow['trade_name'] ?? compRow['legal_name'] ?? 'ALFA SOFT') as String,
+            taxNumber: (compRow['tax_number'] ?? '300000000000003') as String,
+            crNumber: (compRow['commercial_registration'] ?? '1010000000') as String,
+            branchName: brRow['name'] as String,
+            invoiceNumber: invoiceNumber,
+            invoiceDate: DateTime.now(),
+            customerName: selectedCustomerName ?? 'عميل نقدي عابر',
+            subtotal: _subtotalCents / 100.0,
+            taxTotal: _taxCents / 100.0,
+            grandTotal: _grandTotalCents / 100.0,
+            paymentMethod: isCredit ? 'آجل' : paymentMethod,
+          );
+
+          final itemsDto = _cart.map((i) {
+            final lineTax = BankersRounding.toMinorUnits((i.totalCents / 100.0) * 0.15, scale: 2);
+            return InvoiceItemDto(
+              productName: i.name,
+              sku: i.sku,
+              quantity: i.quantity,
+              unitName: i.isCarton ? 'كرتون (${i.unitsPerCarton} ${i.unitName})' : i.unitName,
+              unitPrice: i.unitPriceCents / 100.0,
+              taxAmount: lineTax / 100.0,
+              lineTotal: (i.totalCents + lineTax) / 100.0,
+            );
+          }).toList();
+
+          printerService.printInvoice(
+            header: headerDto,
+            items: itemsDto,
+          );
+        } catch (e) {
+          debugPrint('POS print exception: $e');
+        }
+      }
+
+      final printNotice = isAutoPrint ? ' | تم إرسال الفاتورة للطباعة آلياً' : '';
+
       setState(() {
         _cart.clear();
         _isProcessing = false;
         if (isCredit) {
-          _lastMessage = 'تم اعتماد الفاتورة الآجلة بنجاح: $invoiceNumber على حساب "${selectedCustomerName ?? "العميل"}" | المتبقي آجل: ${(balanceDueCents / 100.0).toStringAsFixed(2)} SAR';
+          _lastMessage = 'تم اعتماد الفاتورة الآجلة بنجاح: $invoiceNumber على حساب "${selectedCustomerName ?? "العميل"}" | المتبقي آجل: ${(balanceDueCents / 100.0).toStringAsFixed(2)} SAR$printNotice';
         } else {
-          _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ ${(_grandTotalCents / 100.0).toStringAsFixed(2)} SAR ($paymentMethod)';
+          _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ ${(_grandTotalCents / 100.0).toStringAsFixed(2)} SAR ($paymentMethod)$printNotice';
         }
       });
 
@@ -454,6 +512,113 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         _lastMessage = 'فشل اعتماد الفاتورة: $e';
       });
     }
+  }
+
+  void _showQuickPrinterDialog() async {
+    final db = ref.read(databaseServiceProvider);
+    final printerService = PrinterService(db);
+    bool autoPrint = printerService.isAutoPrintEnabled();
+    bool customerCopy = printerService.isCustomerCopyEnabled();
+    bool cashierCopy = printerService.isCashierCopyEnabled();
+    String? currentPrinter = printerService.getSelectedPrinter();
+    List<Printer> printers = await printerService.getAvailablePrinters();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDlgState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.print_rounded, color: AppColors.brandPrimary),
+                  SizedBox(width: 8),
+                  Text('إعدادات طابعة الفواتير والنسخ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: SizedBox(
+                width: 460,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('الطابعة المحددة لنقطة البيع:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      initialValue: currentPrinter,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.print_rounded, color: AppColors.lightTextSecondary),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('معاينة النظام (PDF الافتراضية)', style: TextStyle(fontSize: 13, color: AppColors.lightTextSecondary)),
+                        ),
+                        ...printers.map((p) => DropdownMenuItem(
+                          value: p.name,
+                          child: Text(
+                            '${p.name}${p.isDefault ? ' (الافتراضية)' : ''}',
+                            style: const TextStyle(fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )),
+                      ],
+                      onChanged: (v) {
+                        setDlgState(() => currentPrinter = v);
+                        printerService.setSelectedPrinter(v);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('الطباعة التلقائية فور إتمام البيع', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('إرسال الفاتورة للطابعة مباشرة عند الضغط على إتمام البيع', style: TextStyle(fontSize: 11)),
+                      value: autoPrint,
+                      onChanged: (v) {
+                        setDlgState(() => autoPrint = v);
+                        printerService.setAutoPrintEnabled(v);
+                      },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('طباعة نسخة العميل (Customer Copy)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('طباعة إيصال يحمل وسم [نسخة العميل] مع باركود الزكاة', style: TextStyle(fontSize: 11)),
+                      value: customerCopy,
+                      onChanged: (v) {
+                        setDlgState(() => customerCopy = v);
+                        printerService.setCustomerCopyEnabled(v);
+                      },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('طباعة نسخة الكاشير / المحل (Store Copy)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('طباعة نسخة ثانية خاصة بالإدارة ودرج الكاشير', style: TextStyle(fontSize: 11)),
+                      value: cashierCopy,
+                      onChanged: (v) {
+                        setDlgState(() => cashierCopy = v);
+                        printerService.setCashierCopyEnabled(v);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('إغلاق وتطبيق'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   /// Opens credit sales dialog to choose customer/supplier and advance payment
@@ -690,8 +855,14 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
               ],
+              IconButton(
+                icon: const Icon(Icons.print_rounded, color: AppColors.brandPrimary),
+                tooltip: 'إعدادات طابعة الفواتير والنسخ',
+                onPressed: _showQuickPrinterDialog,
+              ),
+              const SizedBox(width: 8),
               Chip(
                 backgroundColor: AppColors.success.withValues(alpha: 0.15),
                 side: BorderSide.none,
@@ -844,7 +1015,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                                     ),
                                                     const SizedBox(width: 4),
                                                     Text(
-                                                      item.isCarton ? 'بالكرتون (${item.unitsPerCarton} حبة)' : 'بالحبة',
+                                                      item.isCarton ? 'بالكرتون (${item.unitsPerCarton} ${item.unitName})' : 'بال${item.unitName}',
                                                       style: TextStyle(
                                                         fontSize: 10,
                                                         fontWeight: FontWeight.bold,
@@ -860,8 +1031,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                       ),
                                       subtitle: Text(
                                         item.isCarton
-                                            ? 'SKU: ${item.sku} | سعر الكرتون: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR (مسحوب مخزن: ${item.inventoryPieces} حبة)'
-                                            : 'SKU: ${item.sku} | سعر الحبة: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR',
+                                            ? 'SKU: ${item.sku} | سعر الكرتون: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR (مسحوب: ${item.inventoryPieces} ${item.unitName})'
+                                            : 'SKU: ${item.sku} | سعر ${item.unitName}: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR',
                                       ),
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -915,25 +1086,26 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                             final int salePrice = prod['wh_sale_price'] as int? ?? prod['sale_price'] as int? ?? 0;
                             final int stockQty = prod['stock_qty'] as int? ?? 0;
                             final int unitsPerCarton = prod['units_per_carton'] as int? ?? 1;
+                            final String unitName = (prod['unit_name'] as String?) ?? 'حبة';
                             final bool hasCarton = unitsPerCarton > 1;
 
                             String stockText;
                             if (unitsPerCarton <= 1) {
-                              stockText = '$stockQty حبة';
+                              stockText = '$stockQty $unitName';
                             } else {
                               final c = stockQty ~/ unitsPerCarton;
                               final p = stockQty % unitsPerCarton;
                               if (c == 0) {
-                                stockText = '$p حبة';
+                                stockText = '$p $unitName';
                               } else if (p == 0) {
                                 stockText = '$c كرتون';
                               } else {
-                                stockText = '$c كرتون و $p حبة';
+                                stockText = '$c كرتون و $p $unitName';
                               }
                             }
 
                             return Tooltip(
-                              message: hasCarton ? 'نقرة: إضافة حبة | ضغط مطول: إضافة كرتون' : 'إضافة حبة للسلة',
+                              message: hasCarton ? 'نقرة: إضافة $unitName | ضغط مطول: إضافة كرتون' : 'إضافة $unitName للسلة',
                               child: InkWell(
                                 onTap: () => _addItemToCart(prod, addAsCarton: false),
                                 onLongPress: hasCarton ? () => _addItemToCart(prod, addAsCarton: true) : null,
