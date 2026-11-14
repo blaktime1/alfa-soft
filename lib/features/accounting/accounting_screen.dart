@@ -18,6 +18,13 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   String _selectedAccountTypeFilter = 'ALL';
   String? _selectedLedgerAccountId;
 
+  // Journal Entries Filters
+  String _journalDateFilter = 'ALL'; // 'TODAY', 'WEEK', 'MONTH', 'ALL', 'CUSTOM'
+  DateTime? _journalFromDate;
+  DateTime? _journalToDate;
+  String _journalSourceFilter = 'ALL';
+  final _journalSearchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -27,6 +34,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   @override
   void dispose() {
     _tabController.dispose();
+    _journalSearchController.dispose();
     super.dispose();
   }
 
@@ -278,50 +286,296 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   // TAB 2: JOURNAL ENTRIES
   // -------------------------------------------------------------
   Widget _buildJournalEntriesTab(BuildContext context, AccountingRepository repo, String companyId) {
-    final entries = repo.getJournalEntries(companyId);
+    DateTime? effectiveFromDate;
+    DateTime? effectiveToDate;
+    final now = DateTime.now();
+
+    if (_journalDateFilter == 'TODAY') {
+      effectiveFromDate = DateTime(now.year, now.month, now.day);
+      effectiveToDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    } else if (_journalDateFilter == 'WEEK') {
+      effectiveFromDate = now.subtract(const Duration(days: 7));
+      effectiveToDate = now;
+    } else if (_journalDateFilter == 'MONTH') {
+      effectiveFromDate = now.subtract(const Duration(days: 30));
+      effectiveToDate = now;
+    } else if (_journalDateFilter == 'CUSTOM') {
+      effectiveFromDate = _journalFromDate;
+      effectiveToDate = _journalToDate;
+    }
+
+    final entries = repo.getJournalEntries(
+      companyId,
+      fromDate: effectiveFromDate,
+      toDate: effectiveToDate,
+      sourceType: _journalSourceFilter == 'ALL' ? null : _journalSourceFilter,
+      query: _journalSearchController.text.trim(),
+    );
+
+    final totalDebits = entries.fold(0, (sum, e) => sum + e.totalDebit);
+    final totalCredits = entries.fold(0, (sum, e) => sum + e.totalCredit);
+    final isFullyBalanced = totalDebits == totalCredits;
 
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header Bar with New Voucher Button
           Row(
             children: [
-              Text('سجل القيود المحاسبية (${entries.length})',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.brandPrimary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.receipt_long_rounded, color: AppColors.brandPrimary, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'سجل قيود اليومية العامة (${entries.length} قيد)',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const Text(
+                    'نظام القيد المزدوج المحاسبي الشامل — التحقق من توازن الحسابات والترحيل الآلي',
+                    style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                  ),
+                ],
+              ),
               const Spacer(),
               ElevatedButton.icon(
                 onPressed: () => _showNewVoucherDialog(context, repo, companyId),
                 icon: const Icon(Icons.add_circle_outline_rounded),
                 label: const Text('سند قيد يدوي جديد'),
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPrimary),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPrimary, foregroundColor: Colors.white),
               ),
             ],
           ),
           const SizedBox(height: 16),
+
+          // Filters Ribbon (Date Chips, Source Dropdown, Search Box)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.lightBgSurface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.lightBorderSubtle),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    // Search Field
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        controller: _journalSearchController,
+                        decoration: InputDecoration(
+                          hintText: 'بحث برقم القيد أو البيان أو الملاحظة...',
+                          prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                          suffixIcon: _journalSearchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 16),
+                                  onPressed: () {
+                                    setState(() => _journalSearchController.clear());
+                                  },
+                                )
+                              : null,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Source Type Dropdown
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _journalSourceFilter,
+                        decoration: InputDecoration(
+                          labelText: 'مصدر القيد المحاسبي',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'ALL', child: Text('جميع المصادر (All)')),
+                          DropdownMenuItem(value: 'SALES_INVOICE', child: Text('فواتير مبيعات')),
+                          DropdownMenuItem(value: 'PURCHASE_INVOICE', child: Text('فواتير مشتريات')),
+                          DropdownMenuItem(value: 'PURCHASE_GRN', child: Text('استلام بضاعة GRN')),
+                          DropdownMenuItem(value: 'PAYROLL', child: Text('مسير رواتب')),
+                          DropdownMenuItem(value: 'MANUAL_JOURNAL', child: Text('قيود يدوية وتسويات')),
+                          DropdownMenuItem(value: 'REVERSAL', child: Text('قيود عكسية')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setState(() => _journalSourceFilter = val);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Quick Date Filters
+                Row(
+                  children: [
+                    const Text('الفترة الزمنية:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('الكل'),
+                      selected: _journalDateFilter == 'ALL',
+                      onSelected: (sel) => setState(() => _journalDateFilter = 'ALL'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: const Text('اليوم'),
+                      selected: _journalDateFilter == 'TODAY',
+                      onSelected: (sel) => setState(() => _journalDateFilter = 'TODAY'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: const Text('آخر 7 أيام'),
+                      selected: _journalDateFilter == 'WEEK',
+                      onSelected: (sel) => setState(() => _journalDateFilter = 'WEEK'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: const Text('هذا الشهر'),
+                      selected: _journalDateFilter == 'MONTH',
+                      onSelected: (sel) => setState(() => _journalDateFilter = 'MONTH'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: Text(_journalDateFilter == 'CUSTOM' && _journalFromDate != null
+                          ? '${DateFormat('yyyy-MM-dd').format(_journalFromDate!)} إلى ${DateFormat('yyyy-MM-dd').format(_journalToDate ?? DateTime.now())}'
+                          : 'تحديد فترة مخصصة...'),
+                      selected: _journalDateFilter == 'CUSTOM',
+                      avatar: const Icon(Icons.date_range_rounded, size: 14),
+                      onSelected: (sel) async {
+                        final picked = await showDateRangePicker(
+                          context: context,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2030),
+                          initialDateRange: _journalFromDate != null && _journalToDate != null
+                              ? DateTimeRange(start: _journalFromDate!, end: _journalToDate!)
+                              : DateTimeRange(start: now.subtract(const Duration(days: 30)), end: now),
+                        );
+                        if (picked != null) {
+                          setState(() {
+                            _journalDateFilter = 'CUSTOM';
+                            _journalFromDate = picked.start;
+                            _journalToDate = picked.end;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Double-Entry Balance Statistics Banner
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: isFullyBalanced
+                  ? AppColors.success.withValues(alpha: 0.08)
+                  : AppColors.danger.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isFullyBalanced ? AppColors.success.withValues(alpha: 0.4) : AppColors.danger.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isFullyBalanced ? Icons.check_circle_rounded : Icons.warning_rounded,
+                  color: isFullyBalanced ? AppColors.success : AppColors.danger,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isFullyBalanced ? 'القيود متزنة ومطابقة محاسبياً (المدين = الدائن)' : 'تحذير: يوجد عدم توازن في المبالغ!',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isFullyBalanced ? AppColors.success : AppColors.danger,
+                    fontSize: 13,
+                  ),
+                ),
+                const Spacer(),
+                Text('إجمالي المدين: ${(totalDebits / 100.0).toStringAsFixed(2)} SAR',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(width: 16),
+                Text('إجمالي الدائن: ${(totalCredits / 100.0).toStringAsFixed(2)} SAR',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Entries List
           Expanded(
             child: Card(
               child: entries.isEmpty
-                  ? const Center(child: Text('لا توجد قيود مرحلة حتى الآن'))
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.search_off_rounded, size: 48, color: AppColors.lightTextSecondary),
+                            SizedBox(height: 12),
+                            Text('لا توجد قيود محاسبية مطابقة لشروط البحث والفلترة المحددة',
+                                style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.lightTextSecondary)),
+                          ],
+                        ),
+                      ),
+                    )
                   : ListView.separated(
                       itemCount: entries.length,
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (context, index) {
                         final entry = entries[index];
                         final amount = (entry.totalDebit / 100.0).toStringAsFixed(2);
+                        final arabicSource = AccountingRepository.getArabicSourceTypeName(entry.sourceType);
+
+                        Color chipColor = Colors.blue;
+                        if (entry.sourceType == 'SALES_INVOICE') chipColor = Colors.green;
+                        if (entry.sourceType == 'PURCHASE_INVOICE' || entry.sourceType == 'PURCHASE_GRN') chipColor = Colors.orange;
+                        if (entry.sourceType == 'PAYROLL') chipColor = Colors.purple;
+                        if (entry.sourceType == 'REVERSAL') chipColor = Colors.red;
+
                         return ExpansionTile(
                           leading: Chip(
-                            label: Text(entry.sourceType),
-                            backgroundColor: entry.sourceType == 'SALES_INVOICE'
-                                ? Colors.green.withValues(alpha: 0.15)
-                                : Colors.blue.withValues(alpha: 0.15),
-                            side: BorderSide.none,
+                            label: Text(arabicSource, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                            backgroundColor: chipColor.withValues(alpha: 0.15),
+                            side: BorderSide(color: chipColor.withValues(alpha: 0.3)),
                           ),
                           title: Row(
                             children: [
                               Text(entry.entryNumber, style: const TextStyle(fontWeight: FontWeight.bold)),
                               const SizedBox(width: 12),
-                              Text(DateFormat('yyyy-MM-dd HH:mm').format(entry.entryDate),
-                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                              Text(
+                                DateFormat('yyyy-MM-dd • hh:mm a').format(entry.entryDate),
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                              ),
+                              const SizedBox(width: 8),
+                              if (entry.isBalanced)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.success.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text('متزن ✓', style: TextStyle(fontSize: 10, color: AppColors.success, fontWeight: FontWeight.bold)),
+                                ),
                             ],
                           ),
                           subtitle: Text(entry.narration),
@@ -354,10 +608,10 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                                     decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.1)),
                                     children: const [
                                       Padding(padding: EdgeInsets.all(6), child: Text('كود الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
-                                      Padding(padding: EdgeInsets.all(6), child: Text('اسم الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
-                                      Padding(padding: EdgeInsets.all(6), child: Text('مدين (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
-                                      Padding(padding: EdgeInsets.all(6), child: Text('دائن (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
-                                      Padding(padding: EdgeInsets.all(6), child: Text('البيان / الملاحظة', style: TextStyle(fontWeight: FontWeight.bold))),
+                                      Padding(padding: EdgeInsets.all(6), child: Text('اسم الحساب المحاسبي', style: TextStyle(fontWeight: FontWeight.bold))),
+                                      Padding(padding: EdgeInsets.all(6), child: Text('مدين (Debit)', style: TextStyle(fontWeight: FontWeight.bold))),
+                                      Padding(padding: EdgeInsets.all(6), child: Text('دائن (Credit)', style: TextStyle(fontWeight: FontWeight.bold))),
+                                      Padding(padding: EdgeInsets.all(6), child: Text('البيان / تفصيل الحركة', style: TextStyle(fontWeight: FontWeight.bold))),
                                     ],
                                   ),
                                   ...entry.lines.map((l) {
@@ -404,7 +658,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                                       onPressed: () => _handleReverseJournalEntry(entry, repo),
                                     ),
                                   const Spacer(),
-                                  Text('المصدر: ${entry.sourceType}',
+                                  Text('مصدر القيد: $arabicSource (${entry.sourceType})',
                                       style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
                                 ],
                               ),

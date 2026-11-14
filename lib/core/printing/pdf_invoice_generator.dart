@@ -433,9 +433,18 @@ class PdfInvoiceGenerator {
                       ),
                       child: pw.Column(
                         children: [
-                          _summaryRow(isEn ? 'Subtotal' : 'المجموع الفرعي (غير شامل الضريبة)', formatCurrency(header.subtotal, cur, language: lang)),
+                          _summaryRow(isEn ? 'Subtotal' : 'المجموع الفرعي (قبل الضريبة)', formatCurrency(header.subtotal, cur, language: lang)),
                           pw.SizedBox(height: 4),
-                          _summaryRow(isEn ? 'VAT (15%)' : 'ضريبة القيمة المضافة (15%)', formatCurrency(header.taxTotal, cur, language: lang)),
+                          if (header.taxTotal > 0)
+                            _summaryRow(
+                              isEn ? 'VAT (${header.subtotal > 0 ? (header.taxTotal / header.subtotal * 100.0).round() : 15}%)' : 'ضريبة القيمة المضافة (${header.subtotal > 0 ? (header.taxTotal / header.subtotal * 100.0).round() : 15}%)',
+                              formatCurrency(header.taxTotal, cur, language: lang),
+                            )
+                          else
+                            _summaryRow(
+                              isEn ? 'VAT (0% - Exempt)' : 'ضريبة القيمة المضافة (0% - معفى)',
+                              formatCurrency(0.0, cur, language: lang),
+                            ),
                           pw.Divider(thickness: 1, color: PdfColors.grey400),
                           _summaryRow(isEn ? 'Grand Total' : 'المجموع الكلي المستحق', formatCurrency(header.grandTotal, cur, language: lang), isBold: true, fontSize: 13, color: PdfColors.blue900),
                         ],
@@ -515,7 +524,10 @@ class PdfInvoiceGenerator {
     final colTotal = isEn ? 'Total' : (isBi ? 'الإجمالي / Total' : 'الإجمالي');
 
     final subtotalLabel = isEn ? 'Subtotal:' : (isBi ? 'المجموع قبل الضريبة / Subtotal:' : 'المجموع قبل الضريبة:');
-    final vatLabel = isEn ? 'VAT (15%):' : (isBi ? 'ضريبة القيمة المضافة / VAT (15%):' : 'ضريبة القيمة المضافة (15%):');
+    final taxRateCalc = header.subtotal > 0 ? (header.taxTotal / header.subtotal * 100.0).round() : 0;
+    final vatLabel = header.taxTotal > 0
+        ? (isEn ? 'VAT ($taxRateCalc%):' : (isBi ? 'ضريبة القيمة المضافة / VAT ($taxRateCalc%):' : 'ضريبة القيمة المضافة ($taxRateCalc%):'))
+        : (isEn ? 'VAT (0% - Exempt):' : (isBi ? 'الضريبة / VAT (0%):' : 'ضريبة القيمة المضافة (0% - معفى):'));
     final grandTotalLabel = isEn ? 'Grand Total:' : (isBi ? 'الإجمالي النهائي / Grand Total:' : 'الإجمالي النهائي:');
 
     final copyBadge = isEn

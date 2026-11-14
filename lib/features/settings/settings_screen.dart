@@ -54,6 +54,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   final _receiptHeaderController = TextEditingController(text: 'أهلاً بكم في منظومة ألفا سوفت');
   final _receiptFooterController = TextEditingController(text: 'شكراً لتعاملكم معنا • البضاعة المباعة تستبدل خلال 3 أيام');
 
+  // Tax Settings
+  bool _isTaxEnabled = true;
+  double _taxRatePercent = 15.0;
+  final _taxRateController = TextEditingController(text: '15.0');
+
   // POS Interface Style & Edit Policies
   String _posInterfaceStyle = 'QUICK';
   String _posEditPolicy = 'TODAY';
@@ -95,6 +100,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
     _receiptFooterController.dispose();
     _rateUsdController.dispose();
     _rateYerController.dispose();
+    _taxRateController.dispose();
     _backupDirController.dispose();
     super.dispose();
   }
@@ -138,6 +144,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         _showTaxBreakdown = ps.isShowTaxBreakdown();
         _receiptHeaderController.text = ps.getReceiptHeader();
         _receiptFooterController.text = ps.getReceiptFooter();
+
+        // Load Tax (VAT) Configuration
+        _isTaxEnabled = ps.isTaxEnabled();
+        _taxRatePercent = ps.getTaxRatePercent();
+        _taxRateController.text = _taxRatePercent.toString();
 
         // Load POS style & policy
         final styleRow = db.select("SELECT value FROM system_settings WHERE key = 'pos_interface_style' LIMIT 1");
@@ -241,6 +252,77 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         );
       }
     }
+  }
+
+  Future<bool> _showAdminPasswordPrompt(BuildContext context, {required String reason}) async {
+    final pwdCtrl = TextEditingController();
+    final db = ref.read(databaseServiceProvider);
+    final ps = PrinterService(db);
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.admin_panel_settings_rounded, color: AppColors.brandPrimary),
+            SizedBox(width: 8),
+            Text('صلاحية المشرف مطلوبة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(reason, style: const TextStyle(fontSize: 13, color: AppColors.lightTextSecondary)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: pwdCtrl,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'كلمة مرور المشرف (Admin Password) *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_rounded),
+                ),
+                onSubmitted: (_) {
+                  if (ps.verifyAdminPassword(pwdCtrl.text)) {
+                    Navigator.pop(ctx, true);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('كلمة المرور غير صحيحة! تم رفض العملية.'), backgroundColor: AppColors.danger),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.brandPrimary,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.verified_user_rounded, size: 18),
+            label: const Text('تأكيد الصلاحية'),
+            onPressed: () {
+              if (ps.verifyAdminPassword(pwdCtrl.text)) {
+                Navigator.pop(ctx, true);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('كلمة المرور غير صحيحة! تم رفض العملية.'), backgroundColor: AppColors.danger),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   void _saveBackupSettings() {
@@ -1211,9 +1293,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                         ),
-                        icon: const Icon(Icons.save_rounded, size: 18),
-                        label: const Text('حفظ الأسعار'),
-                        onPressed: () {
+                        icon: const Icon(Icons.lock_outline_rounded, size: 18),
+                        label: const Text('حفظ الأسعار (بكلمة مرور المشرف)'),
+                        onPressed: () async {
+                          final hasAuth = await _showAdminPasswordPrompt(
+                            context,
+                            reason: 'تعديل أسعار صرف العملات والعملة الافتراضية يؤثر على العمليات المالية ونقاط البيع، ولذلك يتطلب موافقة المشرف المسؤول لمنع أي لخبطة.',
+                          );
+                          if (!hasAuth) return;
                           final db = ref.read(databaseServiceProvider);
                           final ps = PrinterService(db);
                           final usdRate = double.tryParse(_rateUsdController.text.trim()) ?? 3.75;
@@ -1221,9 +1308,131 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                           ps.setExchangeRate('USD', usdRate);
                           ps.setExchangeRate('YER', yerRate);
                           ps.setDefaultCurrency(_defaultCurrency);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('تم التحقق من المشرف وحفظ أسعار صرف العملات بنجاح'),
+                                backgroundColor: AppColors.success,
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // VAT & Tax Configuration Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.lightBgSubtle,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.lightBorderSubtle),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.percent_rounded, color: AppColors.brandPrimary, size: 20),
+                      const SizedBox(width: 8),
+                      const Text('إعدادات ضريبة القيمة المضافة (VAT & Tax Settings)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      const Spacer(),
+                      Switch(
+                        value: _isTaxEnabled,
+                        onChanged: (val) {
+                          setState(() => _isTaxEnabled = val);
+                          final db = ref.read(databaseServiceProvider);
+                          PrinterService(db).setTaxEnabled(val);
+                        },
+                      ),
+                      Text(
+                        _isTaxEnabled ? 'الضريبة مفعلة' : 'معفى / غير مفعلة',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _isTaxEnabled ? AppColors.success : AppColors.lightTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('حدد ما إذا كان النشاط خاضعاً لضريبة القيمة المضافة، أو معفى (0%) للمناطق والدول التي لا تفرض ضريبة:', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: TextFormField(
+                          controller: _taxRateController,
+                          enabled: _isTaxEnabled,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'نسبة الضريبة المئوية (%)',
+                            prefixIcon: Icon(Icons.calculate_outlined),
+                            helperText: 'مثال: 15.0 أو 5.0 أو 0.0',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      // Presets
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          ActionChip(
+                            avatar: const Icon(Icons.money_off_rounded, size: 14),
+                            label: const Text('0% معفى'),
+                            onPressed: () {
+                              setState(() {
+                                _isTaxEnabled = false;
+                                _taxRateController.text = '0.0';
+                              });
+                            },
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.percent_rounded, size: 14),
+                            label: const Text('5% مخفضة'),
+                            onPressed: () {
+                              setState(() {
+                                _isTaxEnabled = true;
+                                _taxRateController.text = '5.0';
+                              });
+                            },
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.verified_rounded, size: 14),
+                            label: const Text('15% عامة'),
+                            onPressed: () {
+                              setState(() {
+                                _isTaxEnabled = true;
+                                _taxRateController.text = '15.0';
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.brandPrimary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        ),
+                        icon: const Icon(Icons.save_rounded, size: 18),
+                        label: const Text('حفظ الضريبة'),
+                        onPressed: () {
+                          final rate = double.tryParse(_taxRateController.text.trim()) ?? 15.0;
+                          final db = ref.read(databaseServiceProvider);
+                          final ps = PrinterService(db);
+                          ps.setTaxEnabled(_isTaxEnabled);
+                          ps.setTaxRatePercent(rate);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('تم حفظ العملات وأسعار الصرف بنجاح'),
+                            SnackBar(
+                              content: Text('تم حفظ إعدادات الضريبة: ${_isTaxEnabled ? "$rate%" : "معفى (0%)"} بنجاح'),
                               backgroundColor: AppColors.success,
                             ),
                           );

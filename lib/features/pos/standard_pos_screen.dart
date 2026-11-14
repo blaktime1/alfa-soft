@@ -49,10 +49,15 @@ class StandardPosItemRow {
     this.warehouseStock = 0,
     this.isCarton = false,
     this.unitsPerCarton = 1,
+    this.taxRatePercent = 15.0,
   });
 
+  double taxRatePercent;
+
   int get lineTotalCents => (quantity * unitPriceCents) - discountCents;
-  int get lineTaxCents => BankersRounding.toMinorUnits((lineTotalCents / 100.0) * 0.15, scale: 2);
+  int get lineTaxCents => taxRatePercent <= 0
+      ? 0
+      : BankersRounding.toMinorUnits((lineTotalCents / 100.0) * (taxRatePercent / 100.0), scale: 2);
   int get inventoryPieces => (quantity + bonusQuantity) * (isCarton ? unitsPerCarton : 1);
 }
 
@@ -75,6 +80,8 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
   String _priceLevel = 'RETAIL'; // 'RETAIL' or 'WHOLESALE'
   String _currencyCode = 'YER';
   double _exchangeRate = 1.0;
+  bool _isTaxEnabled = true;
+  double _taxRatePercent = 15.0;
   String _paymentMethod = 'CASH'; // 'CASH', 'CREDIT', 'BANK'
 
   String? _selectedCustomerId;
@@ -174,6 +181,8 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         final ps = PrinterService(db);
         _currencyCode = ps.getDefaultCurrency();
         _exchangeRate = ps.getExchangeRate(_currencyCode);
+        _isTaxEnabled = ps.isTaxEnabled();
+        _taxRatePercent = ps.getTaxRatePercent();
 
         // Load invoice IDs for navigation
         final invRows = db.select(
@@ -811,8 +820,9 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
       customFooter: printerService.getReceiptFooter(),
     );
 
+    final effTaxRate = (_isTaxEnabled && _taxRatePercent > 0) ? (_taxRatePercent / 100.0) : 0.0;
     final items = inv.items.map((i) {
-      final lineTax = BankersRounding.toMinorUnits((i.lineTotalCents / 100.0) * 0.15, scale: 2);
+      final lineTax = BankersRounding.toMinorUnits((i.lineTotalCents / 100.0) * effTaxRate, scale: 2);
       return InvoiceItemDto(
         productName: i.bonusQuantity > 0 ? '${i.productName} (+${i.bonusQuantity} بونص)' : i.productName,
         sku: i.productBarcode.isNotEmpty ? i.productBarcode : i.productId,
@@ -1960,7 +1970,12 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
           const SizedBox(width: 12),
 
           // VAT
-          _buildTotalCard('ضريبة القيمة المضافة (15%)', '${(_taxCents / 100).toStringAsFixed(2)} $_currencyCode'),
+          _buildTotalCard(
+            _isTaxEnabled && _taxRatePercent > 0
+                ? 'ضريبة القيمة المضافة (${_taxRatePercent.toStringAsFixed(_taxRatePercent.truncateToDouble() == _taxRatePercent ? 0 : 1)}%)'
+                : 'ضريبة القيمة المضافة (0% معفى)',
+            '${(_taxCents / 100).toStringAsFixed(2)} $_currencyCode',
+          ),
           const SizedBox(width: 12),
 
           // Net Total

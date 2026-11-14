@@ -467,14 +467,76 @@ class AccountingRepository {
     );
   }
 
-  /// Retrieves list of journal entries
-  List<JournalEntry> getJournalEntries(String companyId, {int limit = 50}) {
-    final entriesResult = _db.select('''
+  /// Converts system source types into clear professional Arabic labels
+  static String getArabicSourceTypeName(String sourceType) {
+    switch (sourceType.toUpperCase()) {
+      case 'SALES_INVOICE':
+        return 'فاتورة مبيعات';
+      case 'PURCHASE_INVOICE':
+        return 'فاتورة مشتريات';
+      case 'PURCHASE_GRN':
+        return 'سند استلام بضاعة (GRN)';
+      case 'MANUAL_JOURNAL':
+        return 'قيد تسوية يدوي';
+      case 'PAYROLL':
+        return 'مسير رواتب موظفين';
+      case 'CUSTOMER_PAYMENT':
+        return 'سند قبض عميل';
+      case 'SUPPLIER_PAYMENT':
+        return 'سند صرف مورد';
+      case 'REVERSAL':
+        return 'قيد عكسي';
+      case 'INVENTORY_ADJUSTMENT':
+        return 'تسوية مخزنية';
+      default:
+        return sourceType;
+    }
+  }
+
+  /// Retrieves list of journal entries with multi-filter and date range support
+  List<JournalEntry> getJournalEntries(
+    String companyId, {
+    int limit = 100,
+    DateTime? fromDate,
+    DateTime? toDate,
+    String? sourceType,
+    String? query,
+    String? status,
+  }) {
+    final whereClauses = <String>['company_id = ?'];
+    final params = <dynamic>[companyId];
+
+    if (fromDate != null) {
+      whereClauses.add("date(entry_date) >= date(?)");
+      params.add(fromDate.toIso8601String().substring(0, 10));
+    }
+    if (toDate != null) {
+      whereClauses.add("date(entry_date) <= date(?)");
+      params.add(toDate.toIso8601String().substring(0, 10));
+    }
+    if (sourceType != null && sourceType != 'ALL') {
+      whereClauses.add("source_type = ?");
+      params.add(sourceType);
+    }
+    if (status != null && status != 'ALL') {
+      whereClauses.add("status = ?");
+      params.add(status);
+    }
+    if (query != null && query.trim().isNotEmpty) {
+      whereClauses.add("(entry_number LIKE ? OR narration LIKE ?)");
+      params.add('%${query.trim()}%');
+      params.add('%${query.trim()}%');
+    }
+
+    final sql = '''
       SELECT * FROM journal_entries 
-      WHERE company_id = ? 
+      WHERE ${whereClauses.join(' AND ')}
       ORDER BY entry_date DESC, created_at DESC 
       LIMIT ?
-    ''', [companyId, limit]);
+    ''';
+    params.add(limit);
+
+    final entriesResult = _db.select(sql, params);
 
     final List<JournalEntry> list = [];
 

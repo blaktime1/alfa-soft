@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../core/providers/app_state_provider.dart';
+import '../../data/local/database_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/printing/esc_pos_builder.dart';
 import '../../core/printing/pdf_invoice_generator.dart';
@@ -21,6 +22,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
   EscPosPaperSize _selectedPaperSize = EscPosPaperSize.mm80;
   String? _statusNotification;
 
+  // System Operations & Audit Log Filters
+  String _auditDateFilter = 'ALL'; // 'ALL', 'TODAY', 'WEEK', 'MONTH', 'CUSTOM'
+  DateTime? _auditFromDate;
+  DateTime? _auditToDate;
+  String _auditCategoryFilter = 'ALL';
+  String? _auditSelectedUserId;
+  final _auditSearchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +39,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
   @override
   void dispose() {
     _tabController.dispose();
+    _auditSearchController.dispose();
     super.dispose();
   }
 
@@ -57,7 +67,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
             Tab(icon: Icon(Icons.picture_as_pdf_rounded), text: 'الفاتورة الضريبية (A4 PDF)'),
             Tab(icon: Icon(Icons.table_view_rounded), text: 'تصدير البيانات (Excel/CSV)'),
             Tab(icon: Icon(Icons.analytics_rounded), text: 'مؤشرات الأداء (Analytics)'),
-            Tab(icon: Icon(Icons.history_edu_rounded), text: 'سجل تعديل وإلغاء الفواتير (Audit Log)'),
+            Tab(icon: Icon(Icons.history_edu_rounded), text: 'سجل حركات وعمليات النظام (System Operations Log)'),
           ],
         ),
       ),
@@ -695,20 +705,51 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
   }
 
   // -------------------------------------------------------------
-  // TAB 5: SALES INVOICE AUDIT REPORT (EDITS & VOIDS)
+  // TAB 5: COMPREHENSIVE SYSTEM OPERATIONS & AUDIT REPORT
   // -------------------------------------------------------------
   Widget _buildInvoiceAuditReportTab(BuildContext context) {
     final db = ref.watch(databaseServiceProvider);
     final compResult = db.select('SELECT id FROM companies LIMIT 1');
     final companyId = compResult.isNotEmpty ? compResult.first['id'] as String : '';
-    final salesRepo = ref.watch(salesInvoiceRepositoryProvider);
-    final auditLogs = salesRepo.getSalesInvoiceAuditLogs(companyId);
+
+    final operations = _fetchSystemOperations(
+      db,
+      companyId: companyId,
+      dateFilter: _auditDateFilter,
+      fromDate: _auditFromDate,
+      toDate: _auditToDate,
+      categoryFilter: _auditCategoryFilter,
+      selectedUserId: _auditSelectedUserId,
+      query: _auditSearchController.text.trim(),
+    );
+
+    // Fetch active users for filter dropdown
+    List<Map<String, dynamic>> systemUsers = [];
+    try {
+      final uRows = db.select('SELECT id, username, full_name FROM users WHERE company_id = ? ORDER BY full_name ASC', [companyId]);
+      systemUsers = uRows.map((r) => Map<String, dynamic>.from(r)).toList();
+    } catch (_) {}
+
+    // Metrics counters
+    final totalOps = operations.length;
+    final todayOps = operations.where((o) {
+      final ts = o['timestamp'] as String? ?? '';
+      return ts.startsWith(DateTime.now().toIso8601String().substring(0, 10));
+    }).length;
+    final salesOps = operations.where((o) => (o['action'] as String? ?? '').contains('SALE')).length;
+    final editVoidOps = operations.where((o) {
+      final act = (o['action'] as String? ?? '').toUpperCase();
+      return act.contains('EDIT') || act.contains('VOID') || act.contains('REVERSE');
+    }).length;
+
+    final now = DateTime.now();
 
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header & Overview
           Row(
             children: [
               Container(
@@ -725,77 +766,264 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'سجل الرقابة والتدقيق لفواتير المبيعات المعدلة والملغاة',
+                      'سجل الرقابة والعمليات الشامل لكافة حركات النظام (System Operations Audit Log)',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
                     Text(
-                      'توثيق دقيق لكل عملية تعديل أو تراجع عن فاتورة، باسم المستخدم وتاريخ العملية والسبب، مع ضمان انضباط المخزون والقيود المحاسبية.',
+                      'مراقبة وفلترة دقيقة لكافة الأحداث والعمليات (مبيعات، مشتريات، تعديل وإلغاء، قيود محاسبية، حركات مخزنية، مستخدمين) باللغة العربية.',
                       style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
                     ),
                   ],
                 ),
               ),
-              Chip(
-                label: Text('إجمالي العمليات: ${auditLogs.length}'),
-                backgroundColor: AppColors.brandPrimary.withValues(alpha: 0.1),
-              ),
             ],
           ),
           const SizedBox(height: 16),
 
+          // Top Statistics Cards
+          Row(
+            children: [
+              _buildAuditStatCard('إجمالي العمليات المعروضة', '$totalOps عملية', Icons.list_alt_rounded, AppColors.brandPrimary),
+              const SizedBox(width: 12),
+              _buildAuditStatCard('عمليات اليوم', '$todayOps اليوم', Icons.today_rounded, AppColors.brandSecondary),
+              const SizedBox(width: 12),
+              _buildAuditStatCard('فواتير ومبيعات الكاشير', '$salesOps حركة بيع', Icons.point_of_sale_rounded, AppColors.success),
+              const SizedBox(width: 12),
+              _buildAuditStatCard('تعديل وإلغاء فواتير', '$editVoidOps عملية حساسة', Icons.warning_amber_rounded, AppColors.danger),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Search and Filters Bar
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.lightBgSurface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.lightBorderSubtle),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    // Search Field
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        controller: _auditSearchController,
+                        decoration: InputDecoration(
+                          hintText: 'بحث في العمليات باسم المستخدم، رقم المستند، البيان أو السبب...',
+                          prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                          suffixIcon: _auditSearchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 16),
+                                  onPressed: () => setState(() => _auditSearchController.clear()),
+                                )
+                              : null,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Category Filter Dropdown
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _auditCategoryFilter,
+                        decoration: InputDecoration(
+                          labelText: 'نوع وحزمة العمليات',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'ALL', child: Text('جميع العمليات (All)')),
+                          DropdownMenuItem(value: 'SALES', child: Text('مبيعات ونقاط البيع (Sales & POS)')),
+                          DropdownMenuItem(value: 'EDITS_VOIDS', child: Text('تعديل وإلغاء فواتير (Edits & Voids)')),
+                          DropdownMenuItem(value: 'PURCHASES', child: Text('مشتريات وتوريدات (Purchases)')),
+                          DropdownMenuItem(value: 'ACCOUNTING', child: Text('حسابات وقيود يومية (Accounting)')),
+                          DropdownMenuItem(value: 'INVENTORY', child: Text('حركات مخزنية وتسويات (Inventory)')),
+                          DropdownMenuItem(value: 'SYSTEM', child: Text('مستخدمين وأمان ونظام (System & Security)')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setState(() => _auditCategoryFilter = val);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // User Filter Dropdown
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _auditSelectedUserId ?? 'ALL',
+                        decoration: InputDecoration(
+                          labelText: 'تصفية بالمستخدم',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: 'ALL', child: Text('كافة المستخدمين')),
+                          ...systemUsers.map((u) => DropdownMenuItem(
+                                value: u['id'] as String,
+                                child: Text('${u['full_name']} (${u['username']})'),
+                              )),
+                        ],
+                        onChanged: (val) {
+                          setState(() => _auditSelectedUserId = (val == 'ALL' ? null : val));
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Quick Date Filters
+                Row(
+                  children: [
+                    const Text('الفترة الزمنية:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('الكل (All)'),
+                      selected: _auditDateFilter == 'ALL',
+                      onSelected: (sel) => setState(() => _auditDateFilter = 'ALL'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: const Text('اليوم (Today)'),
+                      selected: _auditDateFilter == 'TODAY',
+                      onSelected: (sel) => setState(() => _auditDateFilter = 'TODAY'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: const Text('آخر 7 أيام (Week)'),
+                      selected: _auditDateFilter == 'WEEK',
+                      onSelected: (sel) => setState(() => _auditDateFilter = 'WEEK'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: const Text('هذا الشهر (Month)'),
+                      selected: _auditDateFilter == 'MONTH',
+                      onSelected: (sel) => setState(() => _auditDateFilter = 'MONTH'),
+                    ),
+                    const SizedBox(width: 6),
+                    ChoiceChip(
+                      label: Text(_auditDateFilter == 'CUSTOM' && _auditFromDate != null
+                          ? '${DateFormat('yyyy-MM-dd').format(_auditFromDate!)} إلى ${DateFormat('yyyy-MM-dd').format(_auditToDate ?? DateTime.now())}'
+                          : 'تحديد فترة مخصصة (Custom Range)...'),
+                      selected: _auditDateFilter == 'CUSTOM',
+                      avatar: const Icon(Icons.date_range_rounded, size: 14),
+                      onSelected: (sel) async {
+                        final picked = await showDateRangePicker(
+                          context: context,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2030),
+                          initialDateRange: _auditFromDate != null && _auditToDate != null
+                              ? DateTimeRange(start: _auditFromDate!, end: _auditToDate!)
+                              : DateTimeRange(start: now.subtract(const Duration(days: 30)), end: now),
+                        );
+                        if (picked != null) {
+                          setState(() {
+                            _auditDateFilter = 'CUSTOM';
+                            _auditFromDate = picked.start;
+                            _auditToDate = picked.end;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Operations List
           Expanded(
             child: Card(
               elevation: 1,
-              child: auditLogs.isEmpty
+              child: operations.isEmpty
                   ? const Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.verified_rounded, size: 48, color: AppColors.success),
+                          Icon(Icons.search_off_rounded, size: 48, color: AppColors.lightTextSecondary),
                           SizedBox(height: 12),
-                          Text('لا توجد أي عمليات تعديل أو إلغاء فواتير مسجلة — السجل نظيف تماماً',
-                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text('لا توجد أي حركات أو عمليات مطابقة لمعايير البحث المحددة',
+                              style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.lightTextSecondary)),
                         ],
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: auditLogs.length,
+                      padding: const EdgeInsets.all(8),
+                      itemCount: operations.length,
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        final log = auditLogs[index];
-                        final isVoid = log.action == 'VOID_SALES_INVOICE';
+                        final log = operations[index];
+                        final action = log['action'] as String? ?? 'UNKNOWN';
+                        final actionTitle = _getActionArabicTitle(action);
+                        final userName = log['user_name'] as String? ?? 'مستخدم';
+                        final branchName = log['branch_name'] as String? ?? 'الفرع';
+                        final entityName = log['entity_name'] as String? ?? '';
+                        final entityId = log['entity_id'] as String? ?? '';
+                        final newState = log['new_state'] as String? ?? '';
+                        final reason = log['reason'] as String? ?? '';
+                        final timestamp = log['timestamp'] as String? ?? '';
+                        final deviceId = log['device_id'] as String? ?? 'LOCAL';
+
+                        final isVoid = action.contains('VOID') || action.contains('REVERSE');
+                        final isEdit = action.contains('EDIT');
+                        final isSale = action.contains('SALE');
+                        final isPurchase = action.contains('PURCHASE') || action.contains('GRN');
+
+                        Color badgeColor = AppColors.brandPrimary;
+                        IconData icon = Icons.info_outline_rounded;
+                        if (isVoid) {
+                          badgeColor = AppColors.danger;
+                          icon = Icons.cancel_rounded;
+                        } else if (isEdit) {
+                          badgeColor = Colors.amber.shade800;
+                          icon = Icons.edit_note_rounded;
+                        } else if (isSale) {
+                          badgeColor = AppColors.success;
+                          icon = Icons.shopping_cart_checkout_rounded;
+                        } else if (isPurchase) {
+                          badgeColor = Colors.teal;
+                          icon = Icons.inventory_2_rounded;
+                        }
+
                         return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                           leading: CircleAvatar(
-                            backgroundColor: isVoid
-                                ? AppColors.danger.withValues(alpha: 0.15)
-                                : Colors.amber.withValues(alpha: 0.15),
-                            child: Icon(
-                              isVoid ? Icons.cancel_rounded : Icons.edit_note_rounded,
-                              color: isVoid ? AppColors.danger : Colors.amber.shade800,
-                            ),
+                            backgroundColor: badgeColor.withValues(alpha: 0.15),
+                            child: Icon(icon, color: badgeColor, size: 22),
                           ),
                           title: Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: isVoid ? AppColors.danger : Colors.amber.shade800,
+                                  color: badgeColor.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
                                 ),
                                 child: Text(
-                                  isVoid ? 'إلغاء وتراجع كامل' : 'تعديل فاتورة',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                                  actionTitle,
+                                  style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 11),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 10),
                               Text(
-                                log.invoiceNumber != null ? 'فاتورة: ${log.invoiceNumber}' : 'معرف: ${log.invoiceId}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                '$entityName: $entityId',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                               ),
                               const Spacer(),
                               Text(
-                                DateFormat('yyyy/MM/dd HH:mm').format(log.createdAt),
+                                timestamp.isNotEmpty
+                                    ? DateFormat('yyyy/MM/dd • hh:mm a').format(DateTime.tryParse(timestamp) ?? DateTime.now())
+                                    : '',
                                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                               ),
                             ],
@@ -805,27 +1033,266 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(log.details, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                                Text(
+                                  newState.isNotEmpty ? newState : (reason.isNotEmpty ? reason : 'تم تنفيذ العملية بنجاح'),
+                                  style: const TextStyle(fontSize: 13, color: Colors.black87),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                                 const SizedBox(height: 4),
                                 Row(
                                   children: [
-                                    Icon(Icons.person, size: 14, color: Colors.grey.shade600),
+                                    Icon(Icons.person_rounded, size: 14, color: Colors.grey.shade600),
                                     const SizedBox(width: 4),
-                                    Text('المستخدم: ${log.userName}', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                    Text('المستخدم: $userName', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                                     const SizedBox(width: 16),
-                                    Icon(Icons.devices, size: 14, color: Colors.grey.shade600),
+                                    Icon(Icons.store_rounded, size: 14, color: Colors.grey.shade600),
                                     const SizedBox(width: 4),
-                                    Text('الجهاز: ${log.deviceId}', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                    Text('الفرع: $branchName', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                    const SizedBox(width: 16),
+                                    Icon(Icons.computer_rounded, size: 14, color: Colors.grey.shade600),
+                                    const SizedBox(width: 4),
+                                    Text('الجهاز: $deviceId', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                                   ],
                                 ),
                               ],
                             ),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.open_in_new_rounded, size: 20, color: AppColors.brandPrimary),
+                            tooltip: 'عرض التفاصيل الكاملة للعملية',
+                            onPressed: () => _showOperationDetailsDialog(context, log),
                           ),
                         );
                       },
                     ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAuditStatCard(String title, String value, IconData icon, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: color.withValues(alpha: 0.15),
+              radius: 18,
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                const SizedBox(height: 2),
+                Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _fetchSystemOperations(
+    DatabaseService db, {
+    required String companyId,
+    required String dateFilter,
+    DateTime? fromDate,
+    DateTime? toDate,
+    required String categoryFilter,
+    String? selectedUserId,
+    required String query,
+  }) {
+    final whereClauses = <String>['al.company_id = ?'];
+    final params = <dynamic>[companyId];
+
+    if (dateFilter == 'TODAY') {
+      whereClauses.add("date(al.timestamp) = date('now', 'localtime')");
+    } else if (dateFilter == 'WEEK') {
+      whereClauses.add("date(al.timestamp) >= date('now', '-7 days', 'localtime')");
+    } else if (dateFilter == 'MONTH') {
+      whereClauses.add("date(al.timestamp) >= date('now', '-30 days', 'localtime')");
+    } else if (dateFilter == 'CUSTOM') {
+      if (fromDate != null) {
+        whereClauses.add("date(al.timestamp) >= date(?)");
+        params.add(fromDate.toIso8601String().substring(0, 10));
+      }
+      if (toDate != null) {
+        whereClauses.add("date(al.timestamp) <= date(?)");
+        params.add(toDate.toIso8601String().substring(0, 10));
+      }
+    }
+
+    if (categoryFilter == 'SALES') {
+      whereClauses.add("(al.action LIKE '%SALE%' OR al.action LIKE '%INVOICE%') AND al.action NOT LIKE '%VOID%' AND al.action NOT LIKE '%EDIT%'");
+    } else if (categoryFilter == 'EDITS_VOIDS') {
+      whereClauses.add("(al.action LIKE '%EDIT%' OR al.action LIKE '%VOID%' OR al.action LIKE '%REVERSE%')");
+    } else if (categoryFilter == 'PURCHASES') {
+      whereClauses.add("(al.action LIKE '%PURCHASE%' OR al.action LIKE '%GRN%')");
+    } else if (categoryFilter == 'ACCOUNTING') {
+      whereClauses.add("(al.action LIKE '%JOURNAL%' OR al.action LIKE '%PAYMENT%')");
+    } else if (categoryFilter == 'INVENTORY') {
+      whereClauses.add("(al.action LIKE '%INVENTORY%' OR al.action LIKE '%STOCK%' OR al.action LIKE '%TRANSFER%')");
+    } else if (categoryFilter == 'SYSTEM') {
+      whereClauses.add("(al.action LIKE '%USER%' OR al.action LIKE '%ROLE%' OR al.action LIKE '%BACKUP%' OR al.action LIKE '%OPTIMIZE%' OR al.action LIKE '%LICENSE%')");
+    }
+
+    if (selectedUserId != null && selectedUserId.isNotEmpty && selectedUserId != 'ALL') {
+      whereClauses.add("al.user_id = ?");
+      params.add(selectedUserId);
+    }
+
+    if (query.isNotEmpty) {
+      whereClauses.add('''
+        (al.action LIKE ? OR al.entity_name LIKE ? OR al.entity_id LIKE ? 
+         OR al.new_state LIKE ? OR al.previous_state LIKE ? OR al.reason LIKE ?
+         OR u.full_name LIKE ? OR u.username LIKE ?)
+      ''');
+      final q = '%$query%';
+      params.addAll([q, q, q, q, q, q, q, q]);
+    }
+
+    final sql = '''
+      SELECT 
+        al.id,
+        al.company_id,
+        al.branch_id,
+        al.user_id,
+        al.device_id,
+        al.action,
+        al.entity_name,
+        al.entity_id,
+        al.previous_state,
+        al.new_state,
+        al.timestamp,
+        al.ip_address,
+        al.reason,
+        COALESCE(u.full_name, u.username, 'مستخدم النظام') as user_name,
+        COALESCE(b.name, 'الفرع الرئيسي') as branch_name
+      FROM audit_logs al
+      LEFT JOIN users u ON al.user_id = u.id
+      LEFT JOIN branches b ON al.branch_id = b.id
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY al.timestamp DESC
+      LIMIT 250
+    ''';
+
+    try {
+      final rows = db.select(sql, params);
+      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  String _getActionArabicTitle(String action) {
+    final upper = action.toUpperCase();
+    if (upper == 'POST_SALE') return 'اعتماد فاتورة مبيعات';
+    if (upper == 'EDIT_SALES_INVOICE' || upper == 'EDIT_SALE') return 'تعديل فاتورة مبيعات';
+    if (upper == 'VOID_SALES_INVOICE' || upper == 'VOID_SALE') return 'إلغاء فاتورة مبيعات';
+    if (upper == 'POST_PURCHASE') return 'تسجيل فاتورة مشتريات';
+    if (upper == 'VOID_PURCHASE') return 'إلغاء فاتورة مشتريات';
+    if (upper == 'PURCHASE_GRN') return 'سند استلام بضاعة (GRN)';
+    if (upper == 'POST_JOURNAL_ENTRY') return 'ترحيل قيد محاسبي';
+    if (upper == 'REVERSE_JOURNAL_ENTRY') return 'عكس قيد محاسبي';
+    if (upper == 'SALE_ISSUE') return 'صرف مخزني لمبيعات';
+    if (upper == 'TRANSFER_DISPATCH') return 'إرسال تحويل مخزني';
+    if (upper == 'TRANSFER_RECEIPT') return 'استلام تحويل مخزني';
+    if (upper == 'CREATE_USER') return 'إضافة مستخدم جديد';
+    if (upper == 'UPDATE_USER') return 'تعديل مستخدم';
+    if (upper == 'BACKUP_DATABASE') return 'نسخ احتياطي لقاعدة البيانات';
+    if (upper == 'OPTIMIZE_DATABASE') return 'تحسين وضغط البيانات';
+    if (upper == 'RESTORE_DATABASE') return 'استعادة نسخة احتياطية';
+    return action;
+  }
+
+  void _showOperationDetailsDialog(BuildContext context, Map<String, dynamic> log) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.info_rounded, color: AppColors.brandPrimary),
+            const SizedBox(width: 8),
+            Text('تفاصيل العملية: ${_getActionArabicTitle(log['action'] as String? ?? "")}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _detailRow('كود العملية الإنجليزية:', log['action'] as String? ?? '-'),
+                _detailRow('المستند / الكيان:', '${log['entity_name']} (${log['entity_id']})'),
+                _detailRow('المستخدم المنفذ:', '${log['user_name']} (${log['user_id']})'),
+                _detailRow('الفرع:', log['branch_name'] as String? ?? '-'),
+                _detailRow('الجهاز / المحطة:', log['device_id'] as String? ?? '-'),
+                _detailRow('توقيت العملية:', log['timestamp'] as String? ?? '-'),
+                const Divider(height: 24),
+                if ((log['reason'] as String? ?? '').isNotEmpty) ...[
+                  const Text('السبب / مبرر العملية:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.amber.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                    child: Text(log['reason'] as String, style: const TextStyle(fontSize: 12)),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                const Text('بيان وحالة العملية (Payload / New State):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: AppColors.lightBgSubtle, borderRadius: BorderRadius.circular(8)),
+                  child: SelectableText(log['new_state'] as String? ?? '-', style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                ),
+                if ((log['previous_state'] as String? ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text('الحالة السابقة (Previous State):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: AppColors.lightBgSubtle, borderRadius: BorderRadius.circular(8)),
+                    child: SelectableText(log['previous_state'] as String, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق النافذة')),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 140, child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.lightTextSecondary))),
+          Expanded(child: SelectableText(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
         ],
       ),
     );

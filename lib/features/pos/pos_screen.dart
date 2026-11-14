@@ -81,6 +81,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   String? _lastMessage;
   String _currencyCode = 'SAR';
   double _exchangeRate = 1.0;
+  bool _isTaxEnabled = true;
+  double _taxRatePercent = 15.0;
 
   @override
   void initState() {
@@ -99,9 +101,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       final db = ref.read(databaseServiceProvider);
       final ps = PrinterService(db);
       final curr = ps.getDefaultCurrency();
+      final taxOn = ps.isTaxEnabled();
+      final taxRate = ps.getTaxRatePercent();
       setState(() {
         _currencyCode = curr;
         _exchangeRate = ps.getExchangeRate(curr);
+        _isTaxEnabled = taxOn;
+        _taxRatePercent = taxRate;
       });
     } catch (_) {}
   }
@@ -260,8 +266,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
   int get _subtotalCents => _cart.fold(0, (sum, i) => sum + i.totalCents);
   int get _taxCents {
+    if (!_isTaxEnabled || _taxRatePercent <= 0) return 0;
     final subtotal = _subtotalCents / 100.0;
-    final taxResult = VatCalculator.calculateExclusive(netAmount: subtotal, taxRateBps: 1500);
+    final bps = (_taxRatePercent * 100).round();
+    final taxResult = VatCalculator.calculateExclusive(netAmount: subtotal, taxRateBps: bps);
     return taxResult.taxMinorUnits;
   }
   int get _grandTotalCents => _subtotalCents + _taxCents;
@@ -339,9 +347,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         ]);
 
         // 2. Insert Invoice Items & Inventory Movements
+        final double effRate = (_isTaxEnabled && _taxRatePercent > 0) ? (_taxRatePercent / 100.0) : 0.0;
         for (final item in _cart) {
           final itemId = 'item_${uuid.v4()}';
-          final lineTax = BankersRounding.toMinorUnits((item.totalCents / 100.0) * 0.15, scale: 2);
+          final lineTax = BankersRounding.toMinorUnits((item.totalCents / 100.0) * effRate, scale: 2);
 
           tx.execute('''
             INSERT INTO sales_invoice_items (
@@ -499,8 +508,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             customFooter: printerService.getReceiptFooter(),
           );
 
+          final double effRate = (_isTaxEnabled && _taxRatePercent > 0) ? (_taxRatePercent / 100.0) : 0.0;
           final itemsDto = _cart.map((i) {
-            final lineTax = BankersRounding.toMinorUnits((i.totalCents / 100.0) * 0.15, scale: 2);
+            final lineTax = BankersRounding.toMinorUnits((i.totalCents / 100.0) * effRate, scale: 2);
             return InvoiceItemDto(
               productName: i.name,
               sku: i.sku,
@@ -1271,13 +1281,18 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                     Text('ملخص الفاتورة والدفع',
                         style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 18),
-                    _SummaryRow(label: 'المجموع الفرعي', value: '${(_subtotalCents / 100.0).toStringAsFixed(2)} SAR'),
+                    _SummaryRow(label: 'المجموع الفرعي', value: '${(_subtotalCents / 100.0).toStringAsFixed(2)} $_currencyCode'),
                     const SizedBox(height: 8),
-                    _SummaryRow(label: 'ضريبة القيمة المضافة (15%)', value: '${(_taxCents / 100.0).toStringAsFixed(2)} SAR'),
+                    _SummaryRow(
+                      label: _isTaxEnabled && _taxRatePercent > 0
+                          ? 'ضريبة القيمة المضافة (${_taxRatePercent.toStringAsFixed(_taxRatePercent.truncateToDouble() == _taxRatePercent ? 0 : 1)}%)'
+                          : 'ضريبة القيمة المضافة (0% معفى)',
+                      value: '${(_taxCents / 100.0).toStringAsFixed(2)} $_currencyCode',
+                    ),
                     const Divider(height: 28),
                     _SummaryRow(
                       label: 'المجموع الكلي المطلوب',
-                      value: '${(_grandTotalCents / 100.0).toStringAsFixed(2)} SAR',
+                      value: '${(_grandTotalCents / 100.0).toStringAsFixed(2)} $_currencyCode',
                       isBold: true,
                       highlightColor: AppColors.brandAccent,
                     ),
