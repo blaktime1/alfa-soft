@@ -8,6 +8,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/math/bankers_rounding.dart';
 import '../../core/printing/pdf_invoice_generator.dart';
 import '../../core/printing/printer_service.dart';
+import '../../core/sync/outbox_manager.dart';
 import '../../domain/entities/catalog.dart';
 import '../../domain/entities/partner.dart';
 import '../../domain/entities/organization.dart';
@@ -482,6 +483,72 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
             totalCostCents: totalCost,
             isCash: _balanceDueCents == 0,
           );
+        } catch (_) {}
+
+        // 6.5. Enqueue to LAN sync outbox for multi-terminal replication & catch-up
+        try {
+          final outbox = ref.read(outboxManagerProvider);
+          final itemsPayload = validRows.map((r) => {
+            'id': 'sii_${uuid.v4()}',
+            'invoice_id': newInvoiceId,
+            'product_id': r.productId,
+            'quantity': r.quantity,
+            'bonus_quantity': r.bonusQuantity,
+            'unit_id': r.unitId,
+            'unit_price': r.unitPriceCents,
+            'cost_price': r.costPriceCents,
+            'discount_amount': r.discountCents,
+            'tax_rate': 15,
+            'tax_amount': r.lineTaxCents,
+            'line_total': r.lineTotalCents,
+            'unit_type': r.isCarton ? 'CARTON' : 'PIECE',
+            'units_per_pack': r.isCarton ? r.unitsPerCarton : 1,
+            'batch_number': r.batchNumber,
+            'expiry_date': r.expiryDate,
+            'unit_name': r.unitName,
+          }).toList();
+
+          final paymentsPayload = _actualPaidCents > 0 ? [
+            {
+              'id': 'pay_${uuid.v4()}',
+              'company_id': companyId,
+              'branch_id': _selectedBranchId,
+              'document_type': 'SALES_INVOICE',
+              'document_id': newInvoiceId,
+              'payment_method': _paymentMethod,
+              'amount': _actualPaidCents,
+              'created_by_user_id': userId,
+            }
+          ] : [];
+
+          outbox.enqueue(
+            entityType: 'SALES_INVOICE',
+            entityId: newInvoiceId,
+            operation: SyncOperation.create,
+            payload: {
+              'id': newInvoiceId,
+              'company_id': companyId,
+              'branch_id': _selectedBranchId,
+              'warehouse_id': _selectedWarehouseId,
+              'customer_id': _selectedCustomerId,
+              'invoice_number': _invoiceNumber,
+              'invoice_date': _invoiceDate.toIso8601String(),
+              'subtotal': _subtotalCents,
+              'tax_total': _taxCents,
+              'discount_total': _discountCents,
+              'grand_total': _grandTotalCents,
+              'paid_total': _actualPaidCents,
+              'status': 'POSTED',
+              'payment_status': paymentStatus,
+              'currency_code': _currencyCode,
+              'exchange_rate': _exchangeRate,
+              'items': itemsPayload,
+              'payments': paymentsPayload,
+            },
+          );
+
+          // Fast background push to central server if connected
+          ref.read(lanSyncClientProvider).triggerImmediatePush();
         } catch (_) {}
 
         _showSnack('تم حفظ وترحيل الفاتورة $_invoiceNumber بنجاح!');

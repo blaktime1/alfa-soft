@@ -99,38 +99,32 @@ class LanSyncService {
         _outboxManager = outboxManager ?? OutboxManager(db),
         _conflictEngine = conflictEngine ?? const ConflictResolutionEngine();
 
-  /// Returns discovered active network peers on the LAN
+  final List<SyncPeer> _registeredPeers = [];
+
+  /// Registers or updates a discovered or connected peer
+  void registerPeer(SyncPeer peer) {
+    _registeredPeers.removeWhere((p) => p.nodeId == peer.nodeId || p.ipAddress == peer.ipAddress);
+    _registeredPeers.insert(0, peer);
+    if (_registeredPeers.length > 50) {
+      _registeredPeers.removeLast();
+    }
+  }
+
+  /// Returns active network peers discovered or connected on the LAN
   List<SyncPeer> getDiscoveredPeers() {
+    if (_registeredPeers.isNotEmpty) {
+      return List.unmodifiable(_registeredPeers);
+    }
     return [
       SyncPeer(
         nodeId: 'NODE-SRV-01',
         deviceName: 'الخادم المالي الرئيسي (Main Server)',
         ipAddress: '192.168.1.10',
-        port: 8443,
+        port: 7070,
         role: PeerRole.server,
         lastSeen: DateTime.now(),
         isOnline: true,
         latencyMs: 4,
-      ),
-      SyncPeer(
-        nodeId: 'NODE-POS-02',
-        deviceName: 'كاشير المعرض 2 (POS Counter 2)',
-        ipAddress: '192.168.1.15',
-        port: 8443,
-        role: PeerRole.posTerminal,
-        lastSeen: DateTime.now().subtract(const Duration(seconds: 45)),
-        isOnline: true,
-        latencyMs: 9,
-      ),
-      SyncPeer(
-        nodeId: 'NODE-WH-01',
-        deviceName: 'جهاز أمين المستودع (Warehouse Station)',
-        ipAddress: '192.168.1.20',
-        port: 8443,
-        role: PeerRole.managerWorkstation,
-        lastSeen: DateTime.now().subtract(const Duration(minutes: 3)),
-        isOnline: true,
-        latencyMs: 14,
       ),
     ];
   }
@@ -242,6 +236,14 @@ class LanSyncService {
         return 'suppliers';
       case 'SALES_INVOICE':
         return 'sales_invoices';
+      case 'SALES_INVOICE_ITEM':
+        return 'sales_invoice_items';
+      case 'PAYMENT':
+        return 'payments';
+      case 'USER':
+        return 'users';
+      case 'ROLE':
+        return 'roles';
       case 'JOURNAL_ENTRY':
         return 'journal_entries';
       default:
@@ -254,19 +256,105 @@ class LanSyncService {
     if (table == null) return;
 
     if (operation == 'DELETE') {
+      if (entityType.toUpperCase() == 'SALES_INVOICE') {
+        try {
+          tx.execute('DELETE FROM sales_invoice_items WHERE invoice_id = ?', [entityId]);
+          tx.execute('DELETE FROM payments WHERE document_type = ? AND document_id = ?', ['SALES_INVOICE', entityId]);
+        } catch (_) {}
+      }
       tx.execute('DELETE FROM $table WHERE id = ?', [entityId]);
       return;
     }
 
-    // Dynamic upsert logic based on payload keys
-    final keys = payload.keys.toList();
-    final columns = keys.join(', ');
-    final placeholders = List.filled(keys.length, '?').join(', ');
-    final values = keys.map((k) => payload[k]).toList();
+    // Special handling for SALES_INVOICE containing embedded items and payments
+    List<dynamic>? embeddedItems;
+    List<dynamic>? embeddedPayments;
+    final cleanPayload = Map<String, dynamic>.from(payload);
 
-    tx.execute('''
-      INSERT OR REPLACE INTO $table ($columns)
-      VALUES ($placeholders)
-    ''', values);
+    if (entityType.toUpperCase() == 'SALES_INVOICE') {
+      if (cleanPayload.containsKey('items')) {
+        embeddedItems = cleanPayload.remove('items') as List<dynamic>?;
+      }
+      if (cleanPayload.containsKey('payments')) {
+        embeddedPayments = cleanPayload.remove('payments') as List<dynamic>?;
+      }
+    }
+
+    // Dynamic upsert logic based on payload keys
+    if (cleanPayload.isNotEmpty) {
+      final keys = cleanPayload.keys.toList();
+      final columns = keys.join(', ');
+      final placeholders = List.filled(keys.length, '?').join(', ');
+      final values = keys.map((k) => cleanPayload[k]).toList();
+
+      if (keys.contains('id')) {
+        final updateSets = keys.where((k) => k != 'id').map((k) => '$k = excluded.$k').join(', ');
+        if (updateSets.isNotEmpty) {
+          tx.execute('''
+            INSERT INTO $table ($columns)
+            VALUES ($placeholders)
+            ON CONFLICT(id) DO UPDATE SET $updateSets
+          ''', values);
+        } else {
+          tx.execute('''
+            INSERT OR REPLACE INTO $table ($columns)
+            VALUES ($placeholders)
+          ''', values);
+        }
+      } else {
+        tx.execute('''
+          INSERT OR REPLACE INTO $table ($columns)
+          VALUES ($placeholders)
+        ''', values);
+      }
+    }
+
+    // Ingest embedded items if present
+    if (embeddedItems != null) {
+      for (final rawItem in embeddedItems) {
+        if (rawItem is Map<String, dynamic>) {
+          final itemKeys = rawItem.keys.toList();
+          final itemCols = itemKeys.join(', ');
+          final itemPlaceholders = List.filled(itemKeys.length, '?').join(', ');
+          final itemVals = itemKeys.map((k) => rawItem[k]).toList();
+
+          tx.execute('''
+            INSERT OR REPLACE INTO sales_invoice_items ($itemCols)
+            VALUES ($itemPlaceholders)
+          ''', itemVals);
+
+          // Deduct inventory balance on the primary server
+          final prodId = rawItem['product_id'];
+          final qty = rawItem['quantity'] is num ? (rawItem['quantity'] as num).toInt() : 0;
+          final warehouseId = cleanPayload['warehouse_id'];
+          if (prodId != null && warehouseId != null && qty > 0) {
+            try {
+              tx.execute('''
+                UPDATE inventory_balances 
+                SET quantity = quantity - ?, updated_at = datetime('now')
+                WHERE warehouse_id = ? AND product_id = ?
+              ''', [qty, warehouseId, prodId]);
+            } catch (_) {}
+          }
+        }
+      }
+    }
+
+    // Ingest embedded payments if present
+    if (embeddedPayments != null) {
+      for (final rawPay in embeddedPayments) {
+        if (rawPay is Map<String, dynamic>) {
+          final payKeys = rawPay.keys.toList();
+          final payCols = payKeys.join(', ');
+          final payPlaceholders = List.filled(payKeys.length, '?').join(', ');
+          final payVals = payKeys.map((k) => rawPay[k]).toList();
+
+          tx.execute('''
+            INSERT OR REPLACE INTO payments ($payCols)
+            VALUES ($payPlaceholders)
+          ''', payVals);
+        }
+      }
+    }
   }
 }

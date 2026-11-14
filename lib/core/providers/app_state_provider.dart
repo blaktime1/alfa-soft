@@ -4,6 +4,10 @@ import '../../data/local/database_service.dart';
 import '../../data/repositories/accounting_repository.dart';
 import '../../data/repositories/sales_invoice_repository.dart';
 import '../printing/printer_service.dart';
+import '../sync/lan_sync_protocol.dart';
+import '../sync/lan_sync_server.dart';
+import '../sync/lan_sync_client.dart';
+import '../sync/outbox_manager.dart';
 
 /// Database service provider initialized at boot
 final databaseServiceProvider = Provider<DatabaseService>((ref) {
@@ -22,6 +26,37 @@ final salesInvoiceRepositoryProvider = Provider<SalesInvoiceRepository>((ref) {
 
 final printerServiceProvider = Provider<PrinterService>((ref) {
   return PrinterService(ref.watch(databaseServiceProvider));
+});
+
+final outboxManagerProvider = Provider<OutboxManager>((ref) {
+  return OutboxManager(ref.watch(databaseServiceProvider));
+});
+
+final lanSyncServiceProvider = Provider<LanSyncService>((ref) {
+  final db = ref.watch(databaseServiceProvider);
+  final outbox = ref.watch(outboxManagerProvider);
+  return LanSyncService(db: db, outboxManager: outbox);
+});
+
+final lanSyncServerProvider = Provider<LanSyncServer>((ref) {
+  final db = ref.watch(databaseServiceProvider);
+  final syncService = ref.watch(lanSyncServiceProvider);
+  final server = LanSyncServer(db: db, syncService: syncService);
+  ref.onDispose(() {
+    server.stop();
+  });
+  return server;
+});
+
+final lanSyncClientProvider = Provider<LanSyncClient>((ref) {
+  final db = ref.watch(databaseServiceProvider);
+  final outbox = ref.watch(outboxManagerProvider);
+  final syncService = ref.watch(lanSyncServiceProvider);
+  final client = LanSyncClient(db: db, outboxManager: outbox, syncService: syncService);
+  ref.onDispose(() {
+    client.dispose();
+  });
+  return client;
 });
 
 /// POS Interface Style Provider ('QUICK' for Touch POS vs 'STANDARD' for ERP Invoicing POS)

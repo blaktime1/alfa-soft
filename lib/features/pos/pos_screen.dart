@@ -461,19 +461,60 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
       // 7. Enqueue to sync outbox
       try {
+        final itemsPayload = _cart.map((item) => {
+          'id': 'sii_${uuid.v4()}',
+          'invoice_id': invoiceId,
+          'product_id': item.productId,
+          'quantity': item.quantity,
+          'unit_id': 'default_unit',
+          'unit_price': item.unitPriceCents,
+          'cost_price': item.costPriceCents,
+          'discount_amount': 0,
+          'tax_rate': 15,
+          'tax_amount': 0,
+          'line_total': item.totalCents,
+        }).toList();
+
+        final paymentsPayload = actualPaidCents > 0 ? [
+          {
+            'id': 'pay_${uuid.v4()}',
+            'company_id': companyId,
+            'branch_id': branchId,
+            'document_type': 'SALES_INVOICE',
+            'document_id': invoiceId,
+            'payment_method': isCredit ? 'CASH_ADVANCE' : paymentMethod,
+            'amount': actualPaidCents,
+            'created_by_user_id': userId,
+          }
+        ] : [];
+
         outbox.enqueue(
           entityType: 'SALES_INVOICE',
           entityId: invoiceId,
           operation: SyncOperation.create,
           payload: {
             'id': invoiceId,
-            'number': invoiceNumber,
+            'company_id': companyId,
+            'branch_id': branchId,
+            'warehouse_id': warehouseId,
             'customer_id': resolvedCustomerId,
-            'total': _grandTotalCents,
-            'paid': actualPaidCents,
-            'status': paymentStatus,
+            'invoice_number': invoiceNumber,
+            'invoice_date': DateTime.now().toIso8601String(),
+            'subtotal': _subtotalCents,
+            'tax_total': _taxCents,
+            'discount_total': 0,
+            'grand_total': _grandTotalCents,
+            'paid_total': actualPaidCents,
+            'status': 'POSTED',
+            'payment_status': paymentStatus,
+            'created_by_user_id': userId,
+            'items': itemsPayload,
+            'payments': paymentsPayload,
           },
         );
+
+        // Fast background push to central server if connected
+        ref.read(lanSyncClientProvider).triggerImmediatePush();
       } catch (_) {}
 
       // 8. Auto-print Invoice (Dual-copy: Customer & Cashier)
