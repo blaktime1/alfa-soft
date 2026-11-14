@@ -5,6 +5,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../pos/pos_screen.dart';
+import '../pos/standard_pos_screen.dart';
 import '../inventory/products_screen.dart';
 import '../inventory/stock_transfers_screen.dart';
 import '../purchases/purchases_screen.dart';
@@ -130,8 +131,14 @@ class _MainShellState extends ConsumerState<MainShell> with WindowListener {
     final isArabic = currentLocale.languageCode == 'ar';
     final currentUser = ref.watch(currentUserProvider);
 
-    // If POS is selected, open dedicated fullscreen checkout mode
+    // If POS is selected, open dedicated fullscreen checkout mode based on style preference
     if (_activeSection == ShellNavSection.pos) {
+      final posStyle = ref.watch(posInterfaceStyleProvider);
+      if (posStyle == 'STANDARD') {
+        return StandardPosScreen(
+          onExit: () => setState(() => _activeSection = ShellNavSection.dashboard),
+        );
+      }
       return PosScreen(
         onExit: () => setState(() => _activeSection = ShellNavSection.dashboard),
       );

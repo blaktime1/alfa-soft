@@ -181,6 +181,301 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
     );
   }
 
+  void _showDirectPurchaseInvoiceDialog() {
+    if (_suppliers.isEmpty || _products.isEmpty || _warehouses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يرجى تسجيل مورد ومستودع وصنف واحد على الأقل أولاً')),
+      );
+      return;
+    }
+
+    final invoiceNumber = 'PINV-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
+    String supplierId = _suppliers.first.id;
+    String warehouseId = _warehouses.first.id;
+    String paymentMethod = 'CASH'; // 'CASH' or 'CREDIT'
+
+    final items = <Map<String, dynamic>>[
+      {
+        'productId': _products.first.id,
+        'quantity': 10,
+        'costPrice': _products.first.costPrice,
+      }
+    ];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDState) {
+            double subtotal = 0;
+            for (final it in items) {
+              subtotal += (it['quantity'] as int) * (it['costPrice'] as double);
+            }
+            final vat = subtotal * 0.15;
+            final grandTotal = subtotal + vat;
+
+            return AlertDialog(
+              title: Row(
+                children: [
+                  const Icon(Icons.receipt_long_rounded, color: AppColors.success),
+                  const SizedBox(width: 8),
+                  Text('فاتورة مشتريات وتوريد مخزني مباشر ($invoiceNumber)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: SizedBox(
+                width: 750,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: supplierId,
+                              decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
+                              items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
+                              onChanged: (v) => setDState(() => supplierId = v!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: warehouseId,
+                              decoration: const InputDecoration(labelText: 'مستودع التوريد *', border: OutlineInputBorder()),
+                              items: _warehouses.map((w) => DropdownMenuItem(value: w.id, child: Text(w.name))).toList(),
+                              onChanged: (v) => setDState(() => warehouseId = v!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: paymentMethod,
+                              decoration: const InputDecoration(labelText: 'طريقة الدفع *', border: OutlineInputBorder()),
+                              items: const [
+                                DropdownMenuItem(value: 'CASH', child: Text('نقد (من الخزينة)')),
+                                DropdownMenuItem(value: 'CREDIT', child: Text('آجل (على حساب المورد)')),
+                              ],
+                              onChanged: (v) => setDState(() => paymentMethod = v!),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('الأصناف المشتراة والموردة:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          TextButton.icon(
+                            onPressed: () {
+                              setDState(() {
+                                items.add({
+                                  'productId': _products.first.id,
+                                  'quantity': 1,
+                                  'costPrice': _products.first.costPrice,
+                                });
+                              });
+                            },
+                            icon: const Icon(Icons.add_circle_outline),
+                            label: const Text('إضافة صنف'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      ...List.generate(items.length, (idx) {
+                        final item = items[idx];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: item['productId'] as String,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setDState(() {
+                                        item['productId'] = val;
+                                        final prod = _products.firstWhere((p) => p.id == val);
+                                        item['costPrice'] = prod.costPrice;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 1,
+                                child: TextFormField(
+                                  initialValue: item['quantity'].toString(),
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(labelText: 'الكمية', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  onChanged: (val) {
+                                    setDState(() {
+                                      item['quantity'] = int.tryParse(val) ?? 1;
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: TextFormField(
+                                  initialValue: (item['costPrice'] as double).toStringAsFixed(2),
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(labelText: 'سعر الشراء', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  onChanged: (val) {
+                                    setDState(() {
+                                      item['costPrice'] = double.tryParse(val) ?? 0.0;
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 100,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                                child: Text(
+                                  '${((item['quantity'] as int) * (item['costPrice'] as double)).toStringAsFixed(2)} SAR',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ),
+                              if (items.length > 1)
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                                  onPressed: () => setDState(() => items.removeAt(idx)),
+                                ),
+                            ],
+                          ),
+                        );
+                      }),
+
+                      const Divider(height: 24),
+                      // Summary box
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('الإجمالي قبل الضريبة: ${subtotal.toStringAsFixed(2)} SAR', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('الضريبة (15%): ${vat.toStringAsFixed(2)} SAR', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('الإجمالي النهائي: ${grandTotal.toStringAsFixed(2)} SAR',
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.success, fontSize: 15)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('حفظ الفاتورة وتوريد المخزون فوراً'),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: Colors.white),
+                  onPressed: () {
+                    final db = ref.read(databaseServiceProvider);
+                    final purchaseRepo = PurchaseRepository(db);
+                    final accountingRepo = ref.read(accountingRepositoryProvider);
+                    final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
+                    final branchId = db.select('SELECT id FROM branches WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
+                    final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
+
+                    try {
+                      // 1. Create Purchase Order
+                      final poItems = items.map((it) {
+                        final prod = _products.firstWhere((p) => p.id == it['productId']);
+                        return {
+                          'productId': it['productId'],
+                          'unitId': prod.baseUnitId,
+                          'quantity': it['quantity'],
+                          'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                        };
+                      }).toList();
+
+                      final po = purchaseRepo.createPurchaseOrder(
+                        companyId: companyId,
+                        branchId: branchId,
+                        supplierId: supplierId,
+                        userId: userId,
+                        orderNumber: invoiceNumber,
+                        items: poItems,
+                      );
+
+                      // 2. Receive Goods Immediately into warehouse
+                      final grnItems = items.map((it) {
+                        return {
+                          'productId': it['productId'],
+                          'quantity': it['quantity'],
+                          'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                        };
+                      }).toList();
+
+                      purchaseRepo.receiveGoods(
+                        companyId: companyId,
+                        branchId: branchId,
+                        warehouseId: warehouseId,
+                        supplierId: supplierId,
+                        userId: userId,
+                        purchaseOrderId: po.id,
+                        receiptNumber: 'GRN-$invoiceNumber',
+                        receivedItems: grnItems,
+                      );
+
+                      // 3. If credit, increase supplier balance
+                      if (paymentMethod == 'CREDIT') {
+                        final grandCents = (grandTotal * 100).round();
+                        db.execute('''
+                          UPDATE suppliers 
+                          SET current_balance = current_balance + ?, updated_at = datetime('now')
+                          WHERE id = ?
+                        ''', [grandCents, supplierId]);
+                      }
+
+                      // 4. Double-Entry Accounting
+                      final totalCostCents = (subtotal * 100).round();
+                      final supplierName = _suppliers.firstWhere((s) => s.id == supplierId).name;
+                      accountingRepo.postPurchaseGrnJournal(
+                        companyId: companyId,
+                        branchId: branchId,
+                        userId: userId,
+                        grnId: po.id,
+                        grnNumber: invoiceNumber,
+                        grnDate: DateTime.now(),
+                        totalCostCents: totalCostCents,
+                        supplierName: supplierName,
+                      );
+
+                      Navigator.pop(ctx);
+                      _loadData();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('تم حفظ فاتورة المشتريات وتوريد الأصناف للمخزن بنجاح'), backgroundColor: AppColors.success),
+                      );
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('خطأ: $e'), backgroundColor: AppColors.danger),
+                      );
+                    }
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showReceiveGoodsDialog(PurchaseOrderEntity po) {
     if (_warehouses.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -300,9 +595,19 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                   ),
                 ),
                 ElevatedButton.icon(
+                  onPressed: _showDirectPurchaseInvoiceDialog,
+                  icon: const Icon(Icons.receipt_long_rounded),
+                  label: const Text('فاتورة مشتريات وتوريد مباشر'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
                   onPressed: _showCreateOrderDialog,
                   icon: const Icon(Icons.add_shopping_cart_rounded),
-                  label: const Text('أمر شراء جديد (PO)'),
+                  label: const Text('أمر شراء (PO)'),
                 ),
               ],
             ),

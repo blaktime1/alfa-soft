@@ -24,7 +24,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -51,11 +51,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
         title: const Text('التقارير والمستندات والطباعة — Reporting & Printing Hub'),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           tabs: const [
             Tab(icon: Icon(Icons.receipt_rounded), text: 'إيصالات نقاط البيع (ESC/POS)'),
             Tab(icon: Icon(Icons.picture_as_pdf_rounded), text: 'الفاتورة الضريبية (A4 PDF)'),
             Tab(icon: Icon(Icons.table_view_rounded), text: 'تصدير البيانات (Excel/CSV)'),
             Tab(icon: Icon(Icons.analytics_rounded), text: 'مؤشرات الأداء (Analytics)'),
+            Tab(icon: Icon(Icons.history_edu_rounded), text: 'سجل تعديل وإلغاء الفواتير (Audit Log)'),
           ],
         ),
       ),
@@ -66,6 +68,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           _buildPdfInvoiceTab(context),
           _buildExcelExportTab(context),
           _buildAnalyticsTab(context),
+          _buildInvoiceAuditReportTab(context),
         ],
       ),
     );
@@ -690,4 +693,142 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
       ),
     );
   }
+
+  // -------------------------------------------------------------
+  // TAB 5: SALES INVOICE AUDIT REPORT (EDITS & VOIDS)
+  // -------------------------------------------------------------
+  Widget _buildInvoiceAuditReportTab(BuildContext context) {
+    final db = ref.watch(databaseServiceProvider);
+    final compResult = db.select('SELECT id FROM companies LIMIT 1');
+    final companyId = compResult.isNotEmpty ? compResult.first['id'] as String : '';
+    final salesRepo = ref.watch(salesInvoiceRepositoryProvider);
+    final auditLogs = salesRepo.getSalesInvoiceAuditLogs(companyId);
+
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.brandPrimary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.history_edu_rounded, color: AppColors.brandPrimary, size: 28),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'سجل الرقابة والتدقيق لفواتير المبيعات المعدلة والملغاة',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    Text(
+                      'توثيق دقيق لكل عملية تعديل أو تراجع عن فاتورة، باسم المستخدم وتاريخ العملية والسبب، مع ضمان انضباط المخزون والقيود المحاسبية.',
+                      style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              Chip(
+                label: Text('إجمالي العمليات: ${auditLogs.length}'),
+                backgroundColor: AppColors.brandPrimary.withValues(alpha: 0.1),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          Expanded(
+            child: Card(
+              elevation: 1,
+              child: auditLogs.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.verified_rounded, size: 48, color: AppColors.success),
+                          SizedBox(height: 12),
+                          Text('لا توجد أي عمليات تعديل أو إلغاء فواتير مسجلة — السجل نظيف تماماً',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: auditLogs.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final log = auditLogs[index];
+                        final isVoid = log.action == 'VOID_SALES_INVOICE';
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: isVoid
+                                ? AppColors.danger.withValues(alpha: 0.15)
+                                : Colors.amber.withValues(alpha: 0.15),
+                            child: Icon(
+                              isVoid ? Icons.cancel_rounded : Icons.edit_note_rounded,
+                              color: isVoid ? AppColors.danger : Colors.amber.shade800,
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: isVoid ? AppColors.danger : Colors.amber.shade800,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  isVoid ? 'إلغاء وتراجع كامل' : 'تعديل فاتورة',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                log.invoiceNumber != null ? 'فاتورة: ${log.invoiceNumber}' : 'معرف: ${log.invoiceId}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                              const Spacer(),
+                              Text(
+                                DateFormat('yyyy/MM/dd HH:mm').format(log.createdAt),
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(log.details, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.person, size: 14, color: Colors.grey.shade600),
+                                    const SizedBox(width: 4),
+                                    Text('المستخدم: ${log.userName}', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                    const SizedBox(width: 16),
+                                    Icon(Icons.devices, size: 14, color: Colors.grey.shade600),
+                                    const SizedBox(width: 4),
+                                    Text('الجهاز: ${log.deviceId}', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+

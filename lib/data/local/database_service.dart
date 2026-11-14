@@ -7,6 +7,7 @@ import 'migrations/m004_purchasing_transfers_schema.dart';
 import 'migrations/m005_enterprise_features_schema.dart';
 import 'migrations/m006_system_settings_and_backup_schema.dart';
 import 'migrations/m007_packaging_and_warehouse_pricing_schema.dart';
+import 'migrations/m008_invoice_management_and_pos_preferences_schema.dart';
 
 class DatabaseService {
   final Database _db;
@@ -67,6 +68,7 @@ class DatabaseService {
       const M005EnterpriseFeaturesSchema(),
       const M006SystemSettingsAndBackupSchema(),
       const M007PackagingAndWarehousePricingSchema(),
+      const M008InvoiceManagementAndPosPreferencesSchema(),
     ]..sort((a, b) => a.version.compareTo(b.version));
 
     for (final migration in availableMigrations) {

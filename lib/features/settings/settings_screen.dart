@@ -45,6 +45,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   final _receiptHeaderController = TextEditingController(text: 'أهلاً بكم في منظومة ألفا سوفت');
   final _receiptFooterController = TextEditingController(text: 'شكراً لتعاملكم معنا • البضاعة المباعة تستبدل خلال 3 أيام');
 
+  // POS Interface Style & Edit Policies
+  String _posInterfaceStyle = 'QUICK';
+  String _posEditPolicy = 'TODAY';
+  int _posEditWindowMinutes = 30;
+  int _posEditMaxInvoices = 5;
+
   // Units Management
   List<UnitEntity> _unitsList = [];
 
@@ -107,6 +113,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         _printCustomerCopy = ps.isCustomerCopyEnabled();
         _printCashierCopy = ps.isCashierCopyEnabled();
         _is80mm = ps.getPaperSize() == '80mm';
+
+        // Load POS style & policy
+        final styleRow = db.select("SELECT value FROM system_settings WHERE key = 'pos_interface_style' LIMIT 1");
+        if (styleRow.isNotEmpty) _posInterfaceStyle = styleRow.first['value'] as String;
+
+        final policyRow = db.select("SELECT value FROM system_settings WHERE key = 'pos_edit_policy' LIMIT 1");
+        if (policyRow.isNotEmpty) _posEditPolicy = policyRow.first['value'] as String;
+
+        final winRow = db.select("SELECT value FROM system_settings WHERE key = 'pos_edit_window_minutes' LIMIT 1");
+        if (winRow.isNotEmpty) _posEditWindowMinutes = int.tryParse(winRow.first['value'] as String) ?? 30;
+
+        final maxRow = db.select("SELECT value FROM system_settings WHERE key = 'pos_edit_max_invoices' LIMIT 1");
+        if (maxRow.isNotEmpty) _posEditMaxInvoices = int.tryParse(maxRow.first['value'] as String) ?? 5;
       });
 
       Printing.listPrinters().then((printers) {
@@ -560,13 +579,205 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'تهيئة طابعات الإيصالات الحرارية ونقاط البيع (ESC/POS)',
+              'تهيئة واجهة الكاشير وسياسات الفواتير وطابعات نقاط البيع',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.lightTextPrimary),
             ),
             const SizedBox(height: 6),
             const Text(
-              'دعم مباشر للطابعات الحرارية عبر USB والشبكة بدون الحاجة لتعريفات معقدة.',
+              'تحديد نمط واجهة شاشة المبيعات (سريع / اعتيادي)، مهل تعديل وإلغاء الفواتير للمستخدمين، وتعريف الطابعات.',
               style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+            ),
+            const SizedBox(height: 20),
+
+            // Card 1: POS Interface Style
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.brandPrimary.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.brandPrimary.withValues(alpha: 0.2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('واجهة شاشة الكاشير الافتراضية للنظام:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 6),
+                  const Text('اختر تصميم الواجهة الذي يظهر تلقائياً للكاشير، ويمكن أيضاً التبديل بينهما بزر مباشر من أعلى الشاشة:',
+                      style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            setState(() => _posInterfaceStyle = 'QUICK');
+                            ref.read(posInterfaceStyleProvider.notifier).setStyle('QUICK');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: _posInterfaceStyle == 'QUICK' ? AppColors.brandPrimary.withValues(alpha: 0.1) : Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _posInterfaceStyle == 'QUICK' ? AppColors.brandPrimary : Colors.grey.shade300,
+                                width: _posInterfaceStyle == 'QUICK' ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.touch_app_rounded, color: _posInterfaceStyle == 'QUICK' ? AppColors.brandPrimary : Colors.grey),
+                                const SizedBox(width: 10),
+                                const Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('الكاشير السريع (Touch Grid)', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    Text('واجهة لمسية سريعة بالشبكة للمطاعم ومحلات التجزئة', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            setState(() => _posInterfaceStyle = 'STANDARD');
+                            ref.read(posInterfaceStyleProvider.notifier).setStyle('STANDARD');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: _posInterfaceStyle == 'STANDARD' ? AppColors.brandPrimary.withValues(alpha: 0.1) : Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _posInterfaceStyle == 'STANDARD' ? AppColors.brandPrimary : Colors.grey.shade300,
+                                width: _posInterfaceStyle == 'STANDARD' ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.table_chart_rounded, color: _posInterfaceStyle == 'STANDARD' ? AppColors.brandPrimary : Colors.grey),
+                                const SizedBox(width: 10),
+                                const Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('الكاشير الاعتيادي (ERP Invoicing)', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    Text('واجهة تفصيلية بشريط أدوات وجداول محاسبية متكاملة', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Card 2: Invoice Edit/Void Policy
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade400),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('سياسة تعديل وإلغاء فواتير المبيعات للكاشير والمستخدم العادي:',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 6),
+                  const Text('تحدد هذه الإعدادات متى يُسمح لموظف الكاشير بتعديل الفاتورة أو التراجع عنها، وفي حال تجاوز المهلة يلزم إدخال كلمة مرور المشرف:',
+                      style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _posEditPolicy,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'قاعدة السماح بتعديل/إلغاء الفواتير',
+                      prefixIcon: Icon(Icons.security_rounded),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'TODAY',
+                        child: Text('فواتير اليوم الحالي فقط (المعيار الافتراضي)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'TIMED',
+                        child: Text('مهلة زمنية محددة بالدقائق من وقت تحرير الفاتورة (مثلاً 30 دقيقة)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'COUNT',
+                        child: Text('آخر عدد محدد من الفواتير فقط (مثلاً آخر 5 فواتير)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'ADMIN_ONLY',
+                        child: Text('صلاحية محصورة بالمشرف فقط بكلمة المرور (ممنوع على الكاشير)'),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _posEditPolicy = val);
+                        final db = ref.read(databaseServiceProvider);
+                        db.execute('''
+                          INSERT OR REPLACE INTO system_settings (key, value, updated_at)
+                          VALUES ('pos_edit_policy', ?, datetime('now'))
+                        ''', [val]);
+                      }
+                    },
+                  ),
+                  if (_posEditPolicy == 'TIMED') ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      initialValue: _posEditWindowMinutes.toString(),
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'المهلة المسموحة بالدقائق *',
+                        hintText: '30',
+                        suffixText: 'دقيقة',
+                      ),
+                      onChanged: (val) {
+                        final parsed = int.tryParse(val) ?? 30;
+                        _posEditWindowMinutes = parsed;
+                        final db = ref.read(databaseServiceProvider);
+                        db.execute('''
+                          INSERT OR REPLACE INTO system_settings (key, value, updated_at)
+                          VALUES ('pos_edit_window_minutes', ?, datetime('now'))
+                        ''', [parsed.toString()]);
+                      },
+                    ),
+                  ],
+                  if (_posEditPolicy == 'COUNT') ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      initialValue: _posEditMaxInvoices.toString(),
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'الحد الأقصى لعدد الفواتير السابقة المسموح بتعديلها *',
+                        hintText: '5',
+                        suffixText: 'فواتير',
+                      ),
+                      onChanged: (val) {
+                        final parsed = int.tryParse(val) ?? 5;
+                        _posEditMaxInvoices = parsed;
+                        final db = ref.read(databaseServiceProvider);
+                        db.execute('''
+                          INSERT OR REPLACE INTO system_settings (key, value, updated_at)
+                          VALUES ('pos_edit_max_invoices', ?, datetime('now'))
+                        ''', [parsed.toString()]);
+                      },
+                    ),
+                  ],
+                ],
+              ),
             ),
             const SizedBox(height: 20),
             const Divider(),

@@ -382,11 +382,94 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                                 ],
                               ),
                             ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              child: Row(
+                                children: [
+                                  if (entry.status == 'REVERSED')
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.danger.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text('⚠️ تم عكس هذا القيد وإلغاء أثره المحاسبي',
+                                          style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold, fontSize: 12)),
+                                    )
+                                  else
+                                    OutlinedButton.icon(
+                                      icon: const Icon(Icons.undo_rounded, size: 16, color: AppColors.danger),
+                                      label: const Text('عكس وإلغاء القيد', style: TextStyle(color: AppColors.danger, fontSize: 12)),
+                                      style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
+                                      onPressed: () => _handleReverseJournalEntry(entry, repo),
+                                    ),
+                                  const Spacer(),
+                                  Text('المصدر: ${entry.sourceType}',
+                                      style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+                                ],
+                              ),
+                            ),
                           ],
                         );
                       },
                     ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleReverseJournalEntry(JournalEntry entry, AccountingRepository repo) {
+    final reasonCtrl = TextEditingController(text: 'عكس وإلغاء قيد تسوية');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تأكيد عكس القيد المحاسبي', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('هل أنت متأكد من عكس القيد رقم (${entry.entryNumber})؟ سيتم تبديل الدائن بالمدين وعكس الأثر المالي فوراً.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: reasonCtrl,
+              decoration: const InputDecoration(
+                labelText: 'سبب العكس',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+            icon: const Icon(Icons.undo_rounded),
+            label: const Text('عكس القيد الآن'),
+            onPressed: () {
+              final reason = reasonCtrl.text.trim();
+              if (reason.isEmpty) return;
+              try {
+                repo.reverseJournalEntry(
+                  entryId: entry.id,
+                  userId: _getUserId(),
+                  reason: reason,
+                );
+                Navigator.pop(ctx);
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('تم عكس القيد رقم ${entry.entryNumber} بنجاح وإلغاء أثره'),
+                    backgroundColor: AppColors.success,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('خطأ أثناء عكس القيد: $e'), backgroundColor: AppColors.danger),
+                );
+              }
+            },
           ),
         ],
       ),

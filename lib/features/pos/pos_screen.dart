@@ -857,6 +857,21 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
+              // Switch to Standard POS Button
+              OutlinedButton.icon(
+                onPressed: () {
+                  ref.read(posInterfaceStyleProvider.notifier).setStyle('STANDARD');
+                },
+                icon: const Icon(Icons.table_chart_rounded, size: 16, color: AppColors.brandPrimary),
+                label: const Text(
+                  'الكاشير الاعتيادي (ERP)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+              ),
+              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.print_rounded, color: AppColors.brandPrimary),
                 tooltip: 'إعدادات طابعة الفواتير والنسخ',

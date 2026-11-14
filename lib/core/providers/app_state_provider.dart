@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/local/database_service.dart';
 import '../../data/repositories/accounting_repository.dart';
+import '../../data/repositories/sales_invoice_repository.dart';
+import '../printing/printer_service.dart';
 
 /// Database service provider initialized at boot
 final databaseServiceProvider = Provider<DatabaseService>((ref) {
@@ -11,6 +13,49 @@ final databaseServiceProvider = Provider<DatabaseService>((ref) {
 final accountingRepositoryProvider = Provider<AccountingRepository>((ref) {
   return AccountingRepository(ref.watch(databaseServiceProvider));
 });
+
+final salesInvoiceRepositoryProvider = Provider<SalesInvoiceRepository>((ref) {
+  final db = ref.watch(databaseServiceProvider);
+  final accounting = ref.watch(accountingRepositoryProvider);
+  return SalesInvoiceRepository(db, accounting);
+});
+
+final printerServiceProvider = Provider<PrinterService>((ref) {
+  return PrinterService(ref.watch(databaseServiceProvider));
+});
+
+/// POS Interface Style Provider ('QUICK' for Touch POS vs 'STANDARD' for ERP Invoicing POS)
+final posInterfaceStyleProvider = StateNotifierProvider<PosInterfaceStyleNotifier, String>((ref) {
+  final db = ref.watch(databaseServiceProvider);
+  return PosInterfaceStyleNotifier(db);
+});
+
+class PosInterfaceStyleNotifier extends StateNotifier<String> {
+  final DatabaseService _db;
+
+  PosInterfaceStyleNotifier(this._db) : super('QUICK') {
+    _loadFromDb();
+  }
+
+  void _loadFromDb() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'pos_interface_style' LIMIT 1");
+      if (rows.isNotEmpty) {
+        state = rows.first['value'] as String;
+      }
+    } catch (_) {}
+  }
+
+  void setStyle(String newStyle) {
+    state = newStyle;
+    try {
+      _db.execute('''
+        INSERT OR REPLACE INTO system_settings (key, value, updated_at)
+        VALUES ('pos_interface_style', ?, datetime('now'))
+      ''', [newStyle]);
+    } catch (_) {}
+  }
+}
 
 
 /// Theme Mode Provider (Light / Dark)

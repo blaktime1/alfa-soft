@@ -64,9 +64,9 @@ void main() {
         'warehouse_product_prices',
       ]));
 
-      // Verify migration table recorded all 7 migrations
+      // Verify migration table recorded all 8 migrations
       final migrations = dbService.select('SELECT version FROM schema_migrations ORDER BY version ASC');
-      expect(migrations.length, equals(7));
+      expect(migrations.length, equals(8));
     });
 
     test('Foreign key constraints are strictly enforced', () {

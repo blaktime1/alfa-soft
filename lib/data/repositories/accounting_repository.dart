@@ -125,6 +125,69 @@ class AccountingRepository {
     );
   }
 
+  /// Updates an existing account's details
+  void updateAccount({
+    required String accountId,
+    required String code,
+    required String nameAr,
+    String? nameEn,
+    required AccountType accountType,
+    required bool isActive,
+  }) {
+    _db.execute('''
+      UPDATE chart_of_accounts
+      SET code = ?, name_ar = ?, name_en = ?, account_type = ?, is_active = ?
+      WHERE id = ?
+    ''', [
+      code.trim(),
+      nameAr.trim(),
+      nameEn?.trim(),
+      accountType.code,
+      isActive ? 1 : 0,
+      accountId,
+    ]);
+  }
+
+  /// Reverses an existing journal entry (swapping Debits and Credits and reverting balances)
+  void reverseJournalEntry({
+    required String entryId,
+    required String userId,
+    required String reason,
+  }) {
+    final entryRows = _db.select('SELECT * FROM journal_entries WHERE id = ?', [entryId]);
+    if (entryRows.isEmpty) throw ArgumentError('القيد غير موجود');
+    final entry = entryRows.first;
+    if (entry['status'] == 'REVERSED') throw StateError('القيد معكوس مسبقاً');
+
+    final linesResult = _db.select('SELECT * FROM journal_lines WHERE journal_entry_id = ?', [entryId]);
+
+    final rawReversingLines = <Map<String, dynamic>>[];
+    for (final l in linesResult) {
+      final debit = l['debit'] as int;
+      final credit = l['credit'] as int;
+      rawReversingLines.add({
+        'accountId': l['account_id'],
+        'debit': credit, // Reverse: Debit becomes Credit, Credit becomes Debit
+        'credit': debit,
+        'memo': 'عكس القيد ${entry['entry_number']}: $reason',
+      });
+    }
+
+    postJournalEntry(
+      companyId: entry['company_id'] as String,
+      branchId: entry['branch_id'] as String,
+      userId: userId,
+      entryNumber: 'REV-${entry['entry_number']}',
+      entryDate: DateTime.now(),
+      sourceType: 'REVERSAL',
+      sourceId: entryId,
+      narration: 'قيد عكسي للقيد ${entry['entry_number']}: $reason',
+      rawLines: rawReversingLines,
+    );
+
+    _db.execute("UPDATE journal_entries SET status = 'REVERSED' WHERE id = ?", [entryId]);
+  }
+
   /// Strictly posts a balanced double-entry journal voucher
   JournalEntry postJournalEntry({
     required String companyId,
