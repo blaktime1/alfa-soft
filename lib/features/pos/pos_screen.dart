@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/math/bankers_rounding.dart';
 import '../../core/math/vat_calculator.dart';
 import '../../core/providers/app_state_provider.dart';
+import '../../core/providers/auth_provider.dart';
 import '../../core/sync/outbox_manager.dart';
 import '../../core/theme/app_colors.dart';
 import 'package:printing/printing.dart';
@@ -78,6 +79,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   String _selectedWarehouseId = '';
   bool _isProcessing = false;
   String? _lastMessage;
+  String _currencyCode = 'SAR';
+  double _exchangeRate = 1.0;
 
   @override
   void initState() {
@@ -85,9 +88,22 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     _loadSampleProductsIfEmpty();
     _loadWarehouses();
     _loadCatalog();
+    _loadCurrencySettings();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _barcodeFocusNode.requestFocus();
     });
+  }
+
+  void _loadCurrencySettings() {
+    try {
+      final db = ref.read(databaseServiceProvider);
+      final ps = PrinterService(db);
+      final curr = ps.getDefaultCurrency();
+      setState(() {
+        _currencyCode = curr;
+        _exchangeRate = ps.getExchangeRate(curr);
+      });
+    } catch (_) {}
   }
 
   @override
@@ -303,8 +319,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           INSERT INTO sales_invoices (
             id, company_id, branch_id, warehouse_id, customer_id,
             invoice_number, invoice_date, subtotal, tax_total, grand_total, paid_total,
-            status, payment_status, created_by_user_id
-          ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, 'POSTED', ?, ?)
+            status, payment_status, created_by_user_id, currency_code, exchange_rate
+          ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, 'POSTED', ?, ?, ?, ?)
         ''', [
           invoiceId,
           companyId,
@@ -318,6 +334,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           actualPaidCents,
           paymentStatus,
           userId,
+          _currencyCode,
+          _exchangeRate,
         ]);
 
         // 2. Insert Invoice Items & Inventory Movements
@@ -457,6 +475,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           final compRow = db.select('SELECT legal_name, trade_name, tax_number, commercial_registration FROM companies WHERE id = ?', [companyId]).first;
           final brRow = db.select('SELECT name FROM branches WHERE id = ?', [branchId]).first;
 
+          final currentUser = ref.read(currentUserProvider);
           final headerDto = InvoiceHeaderDto(
             companyName: (compRow['trade_name'] ?? compRow['legal_name'] ?? 'ALFA SOFT') as String,
             taxNumber: (compRow['tax_number'] ?? '300000000000003') as String,
@@ -465,10 +484,19 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             invoiceNumber: invoiceNumber,
             invoiceDate: DateTime.now(),
             customerName: selectedCustomerName ?? 'عميل نقدي عابر',
+            cashierName: currentUser?.fullName ?? currentUser?.username ?? 'الكاشير',
             subtotal: _subtotalCents / 100.0,
             taxTotal: _taxCents / 100.0,
             grandTotal: _grandTotalCents / 100.0,
             paymentMethod: isCredit ? 'آجل' : paymentMethod,
+            currencyCode: _currencyCode,
+            language: printerService.getInvoiceLanguage(),
+            show1DBarcode: printerService.isShow1DBarcode(),
+            showCashierName: printerService.isShowCashierName(),
+            showTaxBreakdown: printerService.isShowTaxBreakdown(),
+            showZatcaQr: printerService.isShowZatcaQr(),
+            customHeader: printerService.getReceiptHeader(),
+            customFooter: printerService.getReceiptFooter(),
           );
 
           final itemsDto = _cart.map((i) {
@@ -495,13 +523,15 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
       final printNotice = isAutoPrint ? ' | تم إرسال الفاتورة للطباعة آلياً' : '';
 
+      final formattedTotal = PdfInvoiceGenerator.formatCurrency(_grandTotalCents / 100.0, _currencyCode);
       setState(() {
         _cart.clear();
         _isProcessing = false;
         if (isCredit) {
-          _lastMessage = 'تم اعتماد الفاتورة الآجلة بنجاح: $invoiceNumber على حساب "${selectedCustomerName ?? "العميل"}" | المتبقي آجل: ${(balanceDueCents / 100.0).toStringAsFixed(2)} SAR$printNotice';
+          final formattedDue = PdfInvoiceGenerator.formatCurrency(balanceDueCents / 100.0, _currencyCode);
+          _lastMessage = 'تم اعتماد الفاتورة الآجلة بنجاح: $invoiceNumber على حساب "${selectedCustomerName ?? "العميل"}" | المتبقي آجل: $formattedDue$printNotice';
         } else {
-          _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ ${(_grandTotalCents / 100.0).toStringAsFixed(2)} SAR ($paymentMethod)$printNotice';
+          _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ $formattedTotal ($paymentMethod)$printNotice';
         }
       });
 
@@ -869,6 +899,47 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 ),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Currency Selector (SAR / USD / YER)
+              Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.brandSecondary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.brandSecondary.withValues(alpha: 0.3)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _currencyCode,
+                    icon: const Icon(Icons.monetization_on_rounded, color: AppColors.brandSecondary, size: 18),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'SAR',
+                        child: Text('SAR (ر.س)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandSecondary)),
+                      ),
+                      DropdownMenuItem(
+                        value: 'USD',
+                        child: Text('USD (\$)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandSecondary)),
+                      ),
+                      DropdownMenuItem(
+                        value: 'YER',
+                        child: Text('YER (ر.ي)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandSecondary)),
+                      ),
+                    ],
+                    onChanged: (newCurr) {
+                      if (newCurr != null) {
+                        final db = ref.read(databaseServiceProvider);
+                        final ps = PrinterService(db);
+                        setState(() {
+                          _currencyCode = newCurr;
+                          _exchangeRate = ps.getExchangeRate(newCurr);
+                        });
+                      }
+                    },
+                  ),
                 ),
               ),
               const SizedBox(width: 8),

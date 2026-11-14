@@ -42,6 +42,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   bool _autoCut = true;
   bool _drawerKick = true;
   bool _showZatcaQr = true;
+  bool _show1DBarcode = true;
+  bool _showCashierName = true;
+  bool _showTaxBreakdown = true;
+  String _invoiceLanguage = 'AR';
+  String _defaultCurrency = 'SAR';
+  double _rateUSD = 3.75;
+  double _rateYER = 0.007;
+  final _rateUsdController = TextEditingController(text: '3.75');
+  final _rateYerController = TextEditingController(text: '0.007');
   final _receiptHeaderController = TextEditingController(text: 'أهلاً بكم في منظومة ألفا سوفت');
   final _receiptFooterController = TextEditingController(text: 'شكراً لتعاملكم معنا • البضاعة المباعة تستبدل خلال 3 أيام');
 
@@ -84,6 +93,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
     _addressController.dispose();
     _receiptHeaderController.dispose();
     _receiptFooterController.dispose();
+    _rateUsdController.dispose();
+    _rateYerController.dispose();
     _backupDirController.dispose();
     super.dispose();
   }
@@ -113,6 +124,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         _printCustomerCopy = ps.isCustomerCopyEnabled();
         _printCashierCopy = ps.isCashierCopyEnabled();
         _is80mm = ps.getPaperSize() == '80mm';
+
+        // Load Invoice Language & Multi-Currency
+        _invoiceLanguage = ps.getInvoiceLanguage();
+        _defaultCurrency = ps.getDefaultCurrency();
+        _rateUSD = ps.getExchangeRate('USD');
+        _rateYER = ps.getExchangeRate('YER');
+        _rateUsdController.text = _rateUSD.toString();
+        _rateYerController.text = _rateYER.toString();
+        _showZatcaQr = ps.isShowZatcaQr();
+        _show1DBarcode = ps.isShow1DBarcode();
+        _showCashierName = ps.isShowCashierName();
+        _showTaxBreakdown = ps.isShowTaxBreakdown();
+        _receiptHeaderController.text = ps.getReceiptHeader();
+        _receiptFooterController.text = ps.getReceiptFooter();
 
         // Load POS style & policy
         final styleRow = db.select("SELECT value FROM system_settings WHERE key = 'pos_interface_style' LIMIT 1");
@@ -950,17 +975,332 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
               title: const Text('رمز الاستجابة السريع ZATCA QR Code'),
               subtitle: const Text('طباعة الباركود المتوافق مع متطلبات هيئة الزكاة والضريبة والجمارك'),
               value: _showZatcaQr,
-              onChanged: (v) => setState(() => _showZatcaQr = v),
+              onChanged: (v) {
+                setState(() => _showZatcaQr = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setShowZatcaQr(v);
+              },
+            ),
+            const Divider(),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('الباركود الأحادي لرقم الفاتورة (Code 128 Barcode)'),
+              subtitle: const Text('طباعة باركود خطي قابل للمسح الضوئي السريع في شاشات الإرجاع والاستعلام'),
+              value: _show1DBarcode,
+              onChanged: (v) {
+                setState(() => _show1DBarcode = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setShow1DBarcode(v);
+              },
+            ),
+            const Divider(),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('طباعة اسم الكاشير / البائع (Cashier Name)'),
+              subtitle: const Text('إظهار اسم المستخدم الذي قام بإصدار الفاتورة لتسهيل المتابعة والتدقيق'),
+              value: _showCashierName,
+              onChanged: (v) {
+                setState(() => _showCashierName = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setShowCashierName(v);
+              },
+            ),
+            const Divider(),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('طباعة تفصيل الضريبة (Tax Breakdown)'),
+              subtitle: const Text('إظهار المجموع قبل الضريبة، نسبة الضريبة، وقيمة الضريبة منفصلة'),
+              value: _showTaxBreakdown,
+              onChanged: (v) {
+                setState(() => _showTaxBreakdown = v);
+                final db = ref.read(databaseServiceProvider);
+                PrinterService(db).setShowTaxBreakdown(v);
+              },
+            ),
+            const SizedBox(height: 24),
+
+            // Language Selection Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.lightBgSubtle,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.lightBorderSubtle),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.language_rounded, color: AppColors.brandPrimary, size: 20),
+                      SizedBox(width: 8),
+                      Text('لغة طباعة الفاتورة (Invoice Language)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('حدد اللغة الأساسية لطباعة إيصالات المبيعات وفواتير نقاط البيع:', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            setState(() => _invoiceLanguage = 'AR');
+                            final db = ref.read(databaseServiceProvider);
+                            PrinterService(db).setInvoiceLanguage('AR');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: _invoiceLanguage == 'AR' ? AppColors.brandPrimary.withValues(alpha: 0.1) : AppColors.lightBgSurface,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _invoiceLanguage == 'AR' ? AppColors.brandPrimary : AppColors.lightBorderSubtle,
+                                width: _invoiceLanguage == 'AR' ? 1.8 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.translate, color: _invoiceLanguage == 'AR' ? AppColors.brandPrimary : AppColors.lightTextSecondary),
+                                const SizedBox(height: 6),
+                                const Text('عربي فقط (Arabic)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            setState(() => _invoiceLanguage = 'EN');
+                            final db = ref.read(databaseServiceProvider);
+                            PrinterService(db).setInvoiceLanguage('EN');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: _invoiceLanguage == 'EN' ? AppColors.brandPrimary.withValues(alpha: 0.1) : AppColors.lightBgSurface,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _invoiceLanguage == 'EN' ? AppColors.brandPrimary : AppColors.lightBorderSubtle,
+                                width: _invoiceLanguage == 'EN' ? 1.8 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.language, color: _invoiceLanguage == 'EN' ? AppColors.brandPrimary : AppColors.lightTextSecondary),
+                                const SizedBox(height: 6),
+                                const Text('English Only', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            setState(() => _invoiceLanguage = 'BILINGUAL');
+                            final db = ref.read(databaseServiceProvider);
+                            PrinterService(db).setInvoiceLanguage('BILINGUAL');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: _invoiceLanguage == 'BILINGUAL' ? AppColors.brandPrimary.withValues(alpha: 0.1) : AppColors.lightBgSurface,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _invoiceLanguage == 'BILINGUAL' ? AppColors.brandPrimary : AppColors.lightBorderSubtle,
+                                width: _invoiceLanguage == 'BILINGUAL' ? 1.8 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.compare_arrows_rounded, color: _invoiceLanguage == 'BILINGUAL' ? AppColors.brandPrimary : AppColors.lightTextSecondary),
+                                const SizedBox(height: 6),
+                                const Text('ثنائي اللغة (Bilingual)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 20),
 
-            const Text('ترويسة الإيصال (Header Text):', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-            const SizedBox(height: 8),
-            TextFormField(controller: _receiptHeaderController),
-            const SizedBox(height: 16),
-            const Text('تذييل الإيصال (Footer Text):', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-            const SizedBox(height: 8),
-            TextFormField(controller: _receiptFooterController),
+            // Multi-Currency & Rates Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.lightBgSubtle,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.lightBorderSubtle),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.currency_exchange_rounded, color: AppColors.brandSecondary, size: 20),
+                      SizedBox(width: 8),
+                      Text('إعدادات العملات المتعددة وأسعار الصرف (Currencies & Exchange Rates)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('حدد العملة الافتراضية للنظام وحدد أسعار صرف الدولار الأمريكي والريال اليمني مقابل الريال السعودي:', style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _defaultCurrency,
+                          decoration: const InputDecoration(
+                            labelText: 'العملة الافتراضية للفواتير',
+                            prefixIcon: Icon(Icons.monetization_on_outlined),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'SAR', child: Text('ريال سعودي (SAR)')),
+                            DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي (USD)')),
+                            DropdownMenuItem(value: 'YER', child: Text('ريال يمني (YER)')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) {
+                              setState(() => _defaultCurrency = v);
+                              final db = ref.read(databaseServiceProvider);
+                              PrinterService(db).setDefaultCurrency(v);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _rateUsdController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'سعر الدولار مقابل الريال (USD/SAR)',
+                            prefixIcon: Icon(Icons.attach_money),
+                            helperText: 'مثال: 3.75',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _rateYerController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'سعر الريال اليمني مقابل السعودي (YER/SAR)',
+                            prefixIcon: Icon(Icons.price_change_outlined),
+                            helperText: 'مثال: 0.007',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.brandSecondary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        ),
+                        icon: const Icon(Icons.save_rounded, size: 18),
+                        label: const Text('حفظ الأسعار'),
+                        onPressed: () {
+                          final db = ref.read(databaseServiceProvider);
+                          final ps = PrinterService(db);
+                          final usdRate = double.tryParse(_rateUsdController.text.trim()) ?? 3.75;
+                          final yerRate = double.tryParse(_rateYerController.text.trim()) ?? 0.007;
+                          ps.setExchangeRate('USD', usdRate);
+                          ps.setExchangeRate('YER', yerRate);
+                          ps.setDefaultCurrency(_defaultCurrency);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('تم حفظ العملات وأسعار الصرف بنجاح'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Header & Footer Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.lightBgSubtle,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.lightBorderSubtle),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.edit_note_rounded, color: AppColors.brandPrimary, size: 20),
+                      SizedBox(width: 8),
+                      Text('تخصيص نصوص وترويسة الفاتورة (Header & Footer Customization)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('ترويسة الإيصال الترحيبية (Header Text):', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _receiptHeaderController,
+                    decoration: const InputDecoration(
+                      hintText: 'مثال: أهلاً بكم في متجرنا - نسعد بخدمتكم',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('تذييل الإيصال وسياسة الاسترجاع (Footer & Return Policy):', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _receiptFooterController,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      hintText: 'مثال: شكراً لتعاملكم معنا • البضاعة المباعة تستبدل خلال 3 أيام مع إحضار الفاتورة',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.brandPrimary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      ),
+                      icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                      label: const Text('حفظ نصوص الفاتورة'),
+                      onPressed: () {
+                        final db = ref.read(databaseServiceProvider);
+                        final ps = PrinterService(db);
+                        ps.setReceiptHeader(_receiptHeaderController.text.trim());
+                        ps.setReceiptFooter(_receiptFooterController.text.trim());
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('تم حفظ نصوص وترويسة الفاتورة بنجاح'),
+                            backgroundColor: AppColors.success,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

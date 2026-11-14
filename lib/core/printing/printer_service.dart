@@ -5,7 +5,7 @@ import '../../data/local/database_service.dart';
 import 'pdf_invoice_generator.dart';
 
 /// Service managing printer hardware selection, POS auto-printing,
-/// and dual-copy (Customer Copy / Cashier Copy) configurations.
+/// invoice language, custom headers/footers, and dual-copy receipt configurations.
 class PrinterService {
   final DatabaseService _db;
 
@@ -73,7 +73,7 @@ class PrinterService {
         return (rows.first['value'] as String?) == '1';
       }
     } catch (_) {}
-    return false; // Default Cashier Copy OFF (optional as requested: "نقدر نطفي النسختين او نشغلها")
+    return false; // Default Cashier Copy OFF
   }
 
   void setCashierCopyEnabled(bool enabled) {
@@ -93,6 +93,133 @@ class PrinterService {
 
   void setPaperSize(String size) {
     _setSetting('printer_paper_size', size);
+  }
+
+  // =================== Invoice Customization & Languages ===================
+
+  /// Returns 'AR', 'EN', or 'BILINGUAL'
+  String getInvoiceLanguage() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'invoice_language' LIMIT 1");
+      if (rows.isNotEmpty) {
+        final val = rows.first['value'] as String?;
+        if (val != null && val.isNotEmpty) return val.toUpperCase();
+      }
+    } catch (_) {}
+    return 'AR';
+  }
+
+  void setInvoiceLanguage(String lang) {
+    _setSetting('invoice_language', lang.toUpperCase());
+  }
+
+  String getDefaultCurrency() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'default_currency' LIMIT 1");
+      if (rows.isNotEmpty) {
+        final val = rows.first['value'] as String?;
+        if (val != null && val.isNotEmpty) return val.toUpperCase();
+      }
+    } catch (_) {}
+    return 'SAR';
+  }
+
+  void setDefaultCurrency(String cur) {
+    _setSetting('default_currency', cur.toUpperCase());
+  }
+
+  double getExchangeRate(String currency) {
+    if (currency == 'SAR') return 1.0;
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = ? LIMIT 1", ['exchange_rate_${currency.toUpperCase()}']);
+      if (rows.isNotEmpty) {
+        final val = rows.first['value'] as String?;
+        if (val != null) return double.tryParse(val) ?? (currency.toUpperCase() == 'USD' ? 3.75 : 0.007);
+      }
+    } catch (_) {}
+    return currency.toUpperCase() == 'USD' ? 3.75 : 0.007;
+  }
+
+  void setExchangeRate(String currency, double rate) {
+    _setSetting('exchange_rate_${currency.toUpperCase()}', rate.toString());
+  }
+
+  bool isShowZatcaQr() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'invoice_show_zatca_qr' LIMIT 1");
+      if (rows.isNotEmpty) return (rows.first['value'] as String?) != '0';
+    } catch (_) {}
+    return true;
+  }
+
+  void setShowZatcaQr(bool show) {
+    _setSetting('invoice_show_zatca_qr', show ? '1' : '0');
+  }
+
+  bool isShow1DBarcode() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'invoice_show_1d_barcode' LIMIT 1");
+      if (rows.isNotEmpty) return (rows.first['value'] as String?) != '0';
+    } catch (_) {}
+    return true;
+  }
+
+  void setShow1DBarcode(bool show) {
+    _setSetting('invoice_show_1d_barcode', show ? '1' : '0');
+  }
+
+  bool isShowCashierName() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'invoice_show_cashier_name' LIMIT 1");
+      if (rows.isNotEmpty) return (rows.first['value'] as String?) != '0';
+    } catch (_) {}
+    return true;
+  }
+
+  void setShowCashierName(bool show) {
+    _setSetting('invoice_show_cashier_name', show ? '1' : '0');
+  }
+
+  bool isShowTaxBreakdown() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'invoice_show_tax_breakdown' LIMIT 1");
+      if (rows.isNotEmpty) return (rows.first['value'] as String?) != '0';
+    } catch (_) {}
+    return true;
+  }
+
+  void setShowTaxBreakdown(bool show) {
+    _setSetting('invoice_show_tax_breakdown', show ? '1' : '0');
+  }
+
+  String getReceiptHeader() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'invoice_receipt_header' LIMIT 1");
+      if (rows.isNotEmpty) {
+        final val = rows.first['value'] as String?;
+        if (val != null && val.isNotEmpty) return val;
+      }
+    } catch (_) {}
+    return 'أهلاً بكم في منظومة ألفا سوفت';
+  }
+
+  void setReceiptHeader(String header) {
+    _setSetting('invoice_receipt_header', header);
+  }
+
+  String getReceiptFooter() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'invoice_receipt_footer' LIMIT 1");
+      if (rows.isNotEmpty) {
+        final val = rows.first['value'] as String?;
+        if (val != null && val.isNotEmpty) return val;
+      }
+    } catch (_) {}
+    return 'شكراً لتعاملكم معنا • البضاعة المباعة تستبدل خلال 3 أيام';
+  }
+
+  void setReceiptFooter(String footer) {
+    _setSetting('invoice_receipt_footer', footer);
   }
 
   void _setSetting(String key, String value) {
@@ -134,6 +261,18 @@ class PrinterService {
 
     if (!printCustomer && !printCashier) return;
 
+    // Enrich header with persisted settings
+    final enrichedHeader = header.copyWith(
+      language: header.language.isNotEmpty ? header.language : getInvoiceLanguage(),
+      currencyCode: header.currencyCode.isNotEmpty ? header.currencyCode : getDefaultCurrency(),
+      showZatcaQr: isShowZatcaQr(),
+      show1DBarcode: isShow1DBarcode(),
+      showCashierName: isShowCashierName(),
+      showTaxBreakdown: isShowTaxBreakdown(),
+      customHeader: header.customHeader ?? getReceiptHeader(),
+      customFooter: header.customFooter ?? getReceiptFooter(),
+    );
+
     Printer? matchedPrinter;
     if (targetPrinterName != null && targetPrinterName.isNotEmpty) {
       try {
@@ -157,9 +296,9 @@ class PrinterService {
     if (printCustomer) {
       try {
         final customerBytes = await PdfInvoiceGenerator.generateThermalReceipt(
-          header: header,
+          header: enrichedHeader,
           items: items,
-          copyLabel: 'نسخة العميل — Customer Copy',
+          copyLabel: enrichedHeader.language == 'EN' ? 'Customer Copy' : 'نسخة العميل — Customer Copy',
           is80mm: is80,
         );
 
@@ -184,9 +323,9 @@ class PrinterService {
     if (printCashier) {
       try {
         final cashierBytes = await PdfInvoiceGenerator.generateThermalReceipt(
-          header: header,
+          header: enrichedHeader,
           items: items,
-          copyLabel: 'نسخة الكاشير / المحل — Store Copy',
+          copyLabel: enrichedHeader.language == 'EN' ? 'Store Copy' : 'نسخة الكاشير / المحل — Store Copy',
           is80mm: is80,
         );
 

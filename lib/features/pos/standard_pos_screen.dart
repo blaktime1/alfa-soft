@@ -7,6 +7,7 @@ import '../../core/providers/app_state_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/math/bankers_rounding.dart';
 import '../../core/printing/pdf_invoice_generator.dart';
+import '../../core/printing/printer_service.dart';
 import '../../domain/entities/catalog.dart';
 import '../../domain/entities/partner.dart';
 import '../../domain/entities/organization.dart';
@@ -169,6 +170,10 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         if (_salesmen.isNotEmpty) {
           _selectedSalesmanId = _salesmen.first['id'] as String;
         }
+
+        final ps = PrinterService(db);
+        _currencyCode = ps.getDefaultCurrency();
+        _exchangeRate = ps.getExchangeRate(_currencyCode);
 
         // Load invoice IDs for navigation
         final invRows = db.select(
@@ -791,10 +796,19 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
       invoiceNumber: inv.invoiceNumber,
       invoiceDate: inv.invoiceDate,
       customerName: inv.customerName,
+      cashierName: inv.createdByUserName,
       subtotal: inv.subtotalCents / 100.0,
       taxTotal: inv.taxTotalCents / 100.0,
       grandTotal: inv.grandTotalCents / 100.0,
       paymentMethod: inv.paymentStatus == 'CREDIT' ? 'آجل' : 'نقداً',
+      currencyCode: inv.currencyCode,
+      language: printerService.getInvoiceLanguage(),
+      show1DBarcode: printerService.isShow1DBarcode(),
+      showCashierName: printerService.isShowCashierName(),
+      showTaxBreakdown: printerService.isShowTaxBreakdown(),
+      showZatcaQr: printerService.isShowZatcaQr(),
+      customHeader: printerService.getReceiptHeader(),
+      customFooter: printerService.getReceiptFooter(),
     );
 
     final items = inv.items.map((i) {
@@ -1189,7 +1203,14 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                   DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي')),
                 ],
                 onChanged: (val) {
-                  if (val != null) setState(() => _currencyCode = val);
+                  if (val != null) {
+                    final db = ref.read(databaseServiceProvider);
+                    final rate = PrinterService(db).getExchangeRate(val);
+                    setState(() {
+                      _currencyCode = val;
+                      _exchangeRate = rate;
+                    });
+                  }
                 },
                 width: 130,
               ),

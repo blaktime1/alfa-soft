@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -69,6 +70,14 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     }
   }
 
+  String _generateBarcode({bool isCarton = false}) {
+    final prefix = isCarton ? '629' : '628';
+    final randomSuffix = (100 + Random().nextInt(900)).toString();
+    final millis = DateTime.now().millisecondsSinceEpoch.toString();
+    final middle = millis.substring(millis.length - 7);
+    return '$prefix$middle$randomSuffix';
+  }
+
   void _showAddProductDialog() {
     final formKey = GlobalKey<FormState>();
     final skuController = TextEditingController(text: 'SKU-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}');
@@ -126,7 +135,29 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                             Expanded(
                               child: TextFormField(
                                 controller: barcodeController,
-                                decoration: const InputDecoration(labelText: 'الباركود الدولي (اختياري)'),
+                                decoration: InputDecoration(
+                                  labelText: 'الباركود الدولي (اختياري)',
+                                  prefixIcon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                                  suffixIcon: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.auto_awesome, color: AppColors.brandPrimary, size: 18),
+                                        tooltip: 'توليد باركود تلقائي جديد',
+                                        onPressed: () {
+                                          barcodeController.text = _generateBarcode();
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.clear_rounded, color: AppColors.lightTextSecondary, size: 18),
+                                        tooltip: 'إزالة / مسح الباركود',
+                                        onPressed: () {
+                                          barcodeController.clear();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -285,9 +316,28 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                     Expanded(
                                       child: TextFormField(
                                         controller: cartonBarcodeController,
-                                        decoration: const InputDecoration(
+                                        decoration: InputDecoration(
                                           labelText: 'باركود الكرتون (اختياري)',
-                                          prefixIcon: Icon(Icons.qr_code_2_rounded, size: 18),
+                                          prefixIcon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                                          suffixIcon: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.auto_awesome, color: AppColors.brandSecondary, size: 18),
+                                                tooltip: 'توليد باركود كرتون تلقائي',
+                                                onPressed: () {
+                                                  cartonBarcodeController.text = _generateBarcode(isCarton: true);
+                                                },
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.clear_rounded, color: AppColors.lightTextSecondary, size: 18),
+                                                tooltip: 'إزالة / مسح باركود الكرتون',
+                                                onPressed: () {
+                                                  cartonBarcodeController.clear();
+                                                },
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -550,7 +600,29 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                             Expanded(
                               child: TextFormField(
                                 controller: barcodeController,
-                                decoration: const InputDecoration(labelText: 'الباركود الدولي'),
+                                decoration: InputDecoration(
+                                  labelText: 'الباركود الدولي',
+                                  prefixIcon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                                  suffixIcon: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.auto_awesome, color: AppColors.brandPrimary, size: 18),
+                                        tooltip: 'توليد باركود تلقائي جديد',
+                                        onPressed: () {
+                                          barcodeController.text = _generateBarcode();
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.clear_rounded, color: AppColors.lightTextSecondary, size: 18),
+                                        tooltip: 'إزالة / مسح الباركود',
+                                        onPressed: () {
+                                          barcodeController.clear();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -732,9 +804,28 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                     Expanded(
                                       child: TextFormField(
                                         controller: cartonBarcodeController,
-                                        decoration: const InputDecoration(
+                                        decoration: InputDecoration(
                                           labelText: 'باركود الكرتون (اختياري)',
-                                          prefixIcon: Icon(Icons.qr_code_2_rounded, size: 18),
+                                          prefixIcon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                                          suffixIcon: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.auto_awesome, color: AppColors.brandSecondary, size: 18),
+                                                tooltip: 'توليد باركود كرتون تلقائي',
+                                                onPressed: () {
+                                                  cartonBarcodeController.text = _generateBarcode(isCarton: true);
+                                                },
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.clear_rounded, color: AppColors.lightTextSecondary, size: 18),
+                                                tooltip: 'إزالة / مسح باركود الكرتون',
+                                                onPressed: () {
+                                                  cartonBarcodeController.clear();
+                                                },
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     ),
