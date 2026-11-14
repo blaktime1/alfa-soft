@@ -282,3 +282,62 @@ class ApprovalRequest {
     );
   }
 }
+
+class SalaryAdvance {
+  final String id;
+  final String companyId;
+  final String employeeId;
+  final String? employeeName;
+  final String advanceNumber;
+  final int amountCents;
+  final String paymentAccountId;
+  final String paymentMethod;
+  final DateTime requestDate;
+  final String repaymentMonth; // 'YYYY-MM'
+  final String status; // 'PENDING', 'DEDUCTED', 'CANCELLED'
+  final String? notes;
+  final String? payrollRunId;
+  final String? journalEntryId;
+  final String? createdBy;
+  final DateTime createdAt;
+
+  const SalaryAdvance({
+    required this.id,
+    required this.companyId,
+    required this.employeeId,
+    this.employeeName,
+    required this.advanceNumber,
+    required this.amountCents,
+    required this.paymentAccountId,
+    this.paymentMethod = 'CASH',
+    required this.requestDate,
+    required this.repaymentMonth,
+    this.status = 'PENDING',
+    this.notes,
+    this.payrollRunId,
+    this.journalEntryId,
+    this.createdBy,
+    required this.createdAt,
+  });
+
+  factory SalaryAdvance.fromMap(Map<String, dynamic> map) {
+    return SalaryAdvance(
+      id: map['id'] as String,
+      companyId: map['company_id'] as String,
+      employeeId: map['employee_id'] as String,
+      employeeName: map['employee_name'] as String?,
+      advanceNumber: map['advance_number'] as String,
+      amountCents: map['amount_cents'] as int,
+      paymentAccountId: map['payment_account_id'] as String,
+      paymentMethod: (map['payment_method'] as String?) ?? 'CASH',
+      requestDate: DateTime.parse(map['request_date'] as String),
+      repaymentMonth: map['repayment_month'] as String,
+      status: map['status'] as String? ?? 'PENDING',
+      notes: map['notes'] as String?,
+      payrollRunId: map['payroll_run_id'] as String?,
+      journalEntryId: map['journal_entry_id'] as String?,
+      createdBy: map['created_by'] as String?,
+      createdAt: DateTime.parse(map['created_at'] as String),
+    );
+  }
+}

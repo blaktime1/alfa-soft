@@ -49,9 +49,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
       // 4. Recent Audit Logs
       final auditResult = db.select('''
-        SELECT action, entity_name, timestamp, user_id 
-        FROM audit_logs 
-        ORDER BY timestamp DESC 
+        SELECT al.action, al.entity_name, al.timestamp, al.user_id, al.new_state,
+               COALESCE(u.full_name, u.username, 'مستخدم النظام') as user_name
+        FROM audit_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        ORDER BY al.timestamp DESC 
         LIMIT 6
       ''');
       _recentAuditLogs = auditResult.map((r) => Map<String, dynamic>.from(r)).toList();
@@ -281,6 +283,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             )
                           else
                             ..._recentAuditLogs.map((log) {
+                              final action = log['action'] as String? ?? '';
+                              final entity = log['entity_name'] as String? ?? '';
+                              final userName = log['user_name'] as String? ?? 'مستخدم';
+                              final timestamp = log['timestamp'] as String? ?? '';
+                              final newState = log['new_state'] as String? ?? '';
+
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Row(
@@ -299,16 +307,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            '${log['action']} (${log['entity_name']})',
+                                            '${_getActionArabicTitle(action)} (${_getEntityArabicTitle(entity)})',
                                             style: const TextStyle(
                                                 fontWeight: FontWeight.w600, fontSize: 13),
                                           ),
+                                          if (newState.isNotEmpty)
+                                            Text(
+                                              newState.replaceAll('Invoice: ', 'فاتورة: ').replaceAll('Total: ', 'الإجمالي: '),
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: theme.colorScheme.onSurface
+                                                      .withValues(alpha: 0.75)),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                           Text(
-                                            '${log['timestamp']}',
+                                            '$timestamp • المستخدم: $userName',
                                             style: TextStyle(
-                                                fontSize: 11,
+                                                fontSize: 10,
                                                 color: theme.colorScheme.onSurface
-                                                    .withValues(alpha: 0.6)),
+                                                    .withValues(alpha: 0.5)),
                                           ),
                                         ],
                                       ),
@@ -328,6 +346,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  String _getActionArabicTitle(String action) {
+    final upper = action.toUpperCase();
+    if (upper == 'POST_SALE') return 'اعتماد فاتورة مبيعات';
+    if (upper == 'EDIT_SALES_INVOICE' || upper == 'EDIT_SALE') return 'تعديل فاتورة مبيعات';
+    if (upper == 'VOID_SALES_INVOICE' || upper == 'VOID_SALE') return 'إلغاء فاتورة مبيعات';
+    if (upper == 'POST_PURCHASE') return 'تسجيل فاتورة مشتريات';
+    if (upper == 'VOID_PURCHASE') return 'إلغاء فاتورة مشتريات';
+    if (upper == 'PURCHASE_GRN') return 'استلام بضاعة (GRN)';
+    if (upper == 'POST_JOURNAL_ENTRY') return 'ترحيل قيد محاسبي';
+    if (upper == 'REVERSE_JOURNAL_ENTRY') return 'عكس قيد محاسبي';
+    if (upper == 'EXPENSE_VOUCHER' || upper == 'POST_EXPENSE' || upper == 'CREATE_EXPENSE') return 'سند صرف مصروفات';
+    if (upper == 'SALARY_ADVANCE' || upper == 'POST_ADVANCE' || upper == 'CREATE_ADVANCE') return 'صرف سلفة موظف';
+    if (upper == 'PAYROLL' || upper == 'GENERATE_PAYROLL') return 'توليد مسير رواتب';
+    if (upper == 'APPROVE_PAYROLL') return 'اعتماد مسير رواتب';
+    if (upper == 'POST_PAYROLL') return 'ترحيل مسير رواتب';
+    if (upper == 'SALE_ISSUE') return 'صرف مخزني لمبيعات';
+    if (upper == 'TRANSFER_DISPATCH') return 'إرسال تحويل مخزني';
+    if (upper == 'TRANSFER_RECEIPT') return 'استلام تحويل مخزني';
+    if (upper == 'CREATE_USER') return 'إضافة مستخدم جديد';
+    if (upper == 'UPDATE_USER') return 'تعديل مستخدم';
+    if (upper == 'BACKUP_DATABASE') return 'نسخ احتياطي للبيانات';
+    if (upper == 'LAN_SYNC_PUSH') return 'مزامنة شبكة محلية (إرسال)';
+    if (upper == 'LAN_SYNC_PULL') return 'مزامنة شبكة محلية (استقبال)';
+    return action;
+  }
+
+  String _getEntityArabicTitle(String entity) {
+    final upper = entity.toUpperCase();
+    if (upper == 'SALES_INVOICE' || upper == 'INVOICE') return 'فاتورة مبيعات';
+    if (upper == 'PURCHASE_INVOICE') return 'فاتورة مشتريات';
+    if (upper == 'PURCHASE_GRN') return 'استلام بضاعة (GRN)';
+    if (upper == 'JOURNAL_ENTRY') return 'قيد محاسبي';
+    if (upper == 'EXPENSE_VOUCHER') return 'سند صرف';
+    if (upper == 'SALARY_ADVANCE') return 'سلفة موظف';
+    if (upper == 'PAYROLL_RUN') return 'مسير رواتب';
+    if (upper == 'PRODUCT') return 'منتج / صنف';
+    if (upper == 'USER') return 'مستخدم';
+    if (upper == 'CUSTOMER') return 'عميل';
+    if (upper == 'SUPPLIER') return 'مورد';
+    if (upper == 'EMPLOYEE') return 'موظف';
+    if (upper == 'SYSTEM_SETTINGS' || upper == 'SETTINGS') return 'إعدادات النظام';
+    return entity;
   }
 }
 

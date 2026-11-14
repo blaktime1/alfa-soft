@@ -1256,8 +1256,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                           onChanged: (v) {
                             if (v != null) {
                               setState(() => _defaultCurrency = v);
-                              final db = ref.read(databaseServiceProvider);
-                              PrinterService(db).setDefaultCurrency(v);
                             }
                           },
                         ),

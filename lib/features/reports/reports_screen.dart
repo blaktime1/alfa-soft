@@ -1016,7 +1016,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                               ),
                               const SizedBox(width: 10),
                               Text(
-                                '$entityName: $entityId',
+                                '${_getEntityArabicTitle(entityName)}: $entityId',
                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                               ),
                               const Spacer(),
@@ -1206,6 +1206,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     if (upper == 'PURCHASE_GRN') return 'سند استلام بضاعة (GRN)';
     if (upper == 'POST_JOURNAL_ENTRY') return 'ترحيل قيد محاسبي';
     if (upper == 'REVERSE_JOURNAL_ENTRY') return 'عكس قيد محاسبي';
+    if (upper == 'EXPENSE_VOUCHER' || upper == 'POST_EXPENSE' || upper == 'CREATE_EXPENSE') return 'تسجيل سند صرف مصروفات';
+    if (upper == 'SALARY_ADVANCE' || upper == 'POST_ADVANCE' || upper == 'CREATE_ADVANCE') return 'صرف سلفة موظف';
+    if (upper == 'PAYROLL' || upper == 'GENERATE_PAYROLL') return 'توليد مسير رواتب';
+    if (upper == 'APPROVE_PAYROLL') return 'اعتماد مسير رواتب';
+    if (upper == 'POST_PAYROLL') return 'ترحيل مسير رواتب';
     if (upper == 'SALE_ISSUE') return 'صرف مخزني لمبيعات';
     if (upper == 'TRANSFER_DISPATCH') return 'إرسال تحويل مخزني';
     if (upper == 'TRANSFER_RECEIPT') return 'استلام تحويل مخزني';
@@ -1214,7 +1219,29 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     if (upper == 'BACKUP_DATABASE') return 'نسخ احتياطي لقاعدة البيانات';
     if (upper == 'OPTIMIZE_DATABASE') return 'تحسين وضغط البيانات';
     if (upper == 'RESTORE_DATABASE') return 'استعادة نسخة احتياطية';
+    if (upper == 'LAN_SYNC_PUSH') return 'مزامنة شبكة محلية (إرسال)';
+    if (upper == 'LAN_SYNC_PULL') return 'مزامنة شبكة محلية (استقبال)';
     return action;
+  }
+
+  String _getEntityArabicTitle(String entity) {
+    final upper = entity.toUpperCase();
+    if (upper == 'SALES_INVOICE' || upper == 'INVOICE') return 'فاتورة مبيعات';
+    if (upper == 'PURCHASE_INVOICE') return 'فاتورة مشتريات';
+    if (upper == 'PURCHASE_GRN') return 'سند استلام بضاعة (GRN)';
+    if (upper == 'JOURNAL_ENTRY') return 'قيد محاسبي';
+    if (upper == 'EXPENSE_VOUCHER') return 'سند صرف مصروف';
+    if (upper == 'SALARY_ADVANCE') return 'سلفة موظف';
+    if (upper == 'PAYROLL_RUN') return 'مسير رواتب';
+    if (upper == 'PRODUCT') return 'منتج / صنف';
+    if (upper == 'USER') return 'مستخدم';
+    if (upper == 'CUSTOMER') return 'عميل';
+    if (upper == 'SUPPLIER') return 'مورد';
+    if (upper == 'EMPLOYEE') return 'موظف';
+    if (upper == 'WAREHOUSE') return 'مستودع';
+    if (upper == 'BRANCH') return 'فرع';
+    if (upper == 'SYSTEM_SETTINGS' || upper == 'SETTINGS') return 'إعدادات النظام';
+    return entity;
   }
 
   void _showOperationDetailsDialog(BuildContext context, Map<String, dynamic> log) {
@@ -1238,7 +1265,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
               mainAxisSize: MainAxisSize.min,
               children: [
                 _detailRow('كود العملية الإنجليزية:', log['action'] as String? ?? '-'),
-                _detailRow('المستند / الكيان:', '${log['entity_name']} (${log['entity_id']})'),
+                _detailRow('المستند / الكيان:', '${_getEntityArabicTitle(log['entity_name'] as String? ?? "")} (${log['entity_id']})'),
                 _detailRow('المستخدم المنفذ:', '${log['user_name']} (${log['user_id']})'),
                 _detailRow('الفرع:', log['branch_name'] as String? ?? '-'),
                 _detailRow('الجهاز / المحطة:', log['device_id'] as String? ?? '-'),

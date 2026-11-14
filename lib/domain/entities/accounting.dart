@@ -274,3 +274,80 @@ class BalanceSheet {
     this.equityItems = const [],
   });
 }
+
+class ExpenseVoucher {
+  final String id;
+  final String companyId;
+  final String voucherNumber;
+  final String category; // 'RENT', 'UTILITIES', 'MAINTENANCE', 'FIXED_ASSET', 'SUPPLIES', 'OTHER'
+  final String expenseAccountId;
+  final String paymentAccountId;
+  final int amountCents;
+  final String paymentMethod; // 'CASH', 'BANK'
+  final String? referenceNo;
+  final String description;
+  final DateTime voucherDate;
+  final String? journalEntryId;
+  final String? createdBy;
+  final DateTime createdAt;
+  final String? expenseAccountName;
+  final String? paymentAccountName;
+
+  const ExpenseVoucher({
+    required this.id,
+    required this.companyId,
+    required this.voucherNumber,
+    required this.category,
+    required this.expenseAccountId,
+    required this.paymentAccountId,
+    required this.amountCents,
+    required this.paymentMethod,
+    this.referenceNo,
+    required this.description,
+    required this.voucherDate,
+    this.journalEntryId,
+    this.createdBy,
+    required this.createdAt,
+    this.expenseAccountName,
+    this.paymentAccountName,
+  });
+
+  factory ExpenseVoucher.fromMap(Map<String, dynamic> map) {
+    return ExpenseVoucher(
+      id: map['id'] as String,
+      companyId: map['company_id'] as String,
+      voucherNumber: map['voucher_number'] as String,
+      category: map['category'] as String,
+      expenseAccountId: map['expense_account_id'] as String,
+      paymentAccountId: map['payment_account_id'] as String,
+      amountCents: map['amount_cents'] as int,
+      paymentMethod: map['payment_method'] as String,
+      referenceNo: map['reference_no'] as String?,
+      description: map['description'] as String,
+      voucherDate: DateTime.parse(map['voucher_date'] as String),
+      journalEntryId: map['journal_entry_id'] as String?,
+      createdBy: map['created_by'] as String?,
+      createdAt: DateTime.parse(map['created_at'] as String),
+      expenseAccountName: map['expense_account_name'] as String?,
+      paymentAccountName: map['payment_account_name'] as String?,
+    );
+  }
+
+  static String getCategoryArabicName(String category) {
+    switch (category.toUpperCase()) {
+      case 'RENT':
+        return 'إيجار شهري / سنوي';
+      case 'UTILITIES':
+        return 'فواتير كهرباء ومياه وإنترنت';
+      case 'MAINTENANCE':
+        return 'صيانة وتصليح أعطال';
+      case 'FIXED_ASSET':
+        return 'أصول ومعدات (كاميرات، رفوف، أجهزة)';
+      case 'SUPPLIES':
+        return 'ضيافة ونظافة ومستلزمات';
+      case 'OTHER':
+      default:
+        return 'مصروفات تشغيلية أخرى';
+    }
+  }
+}

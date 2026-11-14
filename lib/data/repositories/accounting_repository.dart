@@ -20,7 +20,9 @@ class AccountingRepository {
       {'code': '1010', 'name_ar': 'الخزينة النقدية الرئيسية', 'name_en': 'Cash on Hand', 'type': 'ASSET', 'is_leaf': 1},
       {'code': '1020', 'name_ar': 'الحساب البنكي / نقاط البيع', 'name_en': 'Bank Accounts / POS', 'type': 'ASSET', 'is_leaf': 1},
       {'code': '1100', 'name_ar': 'العملاء والمدينون', 'name_en': 'Accounts Receivable', 'type': 'ASSET', 'is_leaf': 1},
+      {'code': '1150', 'name_ar': 'سلف وعهد الموظفين', 'name_en': 'Employee Advances', 'type': 'ASSET', 'is_leaf': 1},
       {'code': '1200', 'name_ar': 'مخزون البضائع', 'name_en': 'Merchandise Inventory', 'type': 'ASSET', 'is_leaf': 1},
+      {'code': '1500', 'name_ar': 'الأصول والمعدات الثابتة (أجهزة وكاميرات ورفوف)', 'name_en': 'Fixed Assets & Equipment', 'type': 'ASSET', 'is_leaf': 1},
 
       // 2. Liabilities
       {'code': '2010', 'name_ar': 'الموردون والدائنون', 'name_en': 'Accounts Payable', 'type': 'LIABILITY', 'is_leaf': 1},
@@ -36,8 +38,10 @@ class AccountingRepository {
 
       // 5. Expenses
       {'code': '5010', 'name_ar': 'تكلفة البضاعة المباعة (COGS)', 'name_en': 'Cost of Goods Sold', 'type': 'EXPENSE', 'is_leaf': 1},
-      {'code': '5020', 'name_ar': 'مصروفات إدارية وعمومية', 'name_en': 'General & Admin Expenses', 'type': 'EXPENSE', 'is_leaf': 1},
-      {'code': '5030', 'name_ar': 'مصروف الإيجار والمرافق', 'name_en': 'Rent and Utilities', 'type': 'EXPENSE', 'is_leaf': 1},
+      {'code': '5020', 'name_ar': 'مصروفات إدارية وعمومية وضيافة', 'name_en': 'General & Admin Expenses', 'type': 'EXPENSE', 'is_leaf': 1},
+      {'code': '5021', 'name_ar': 'مصروفات صيانة وإصلاحات وأعطال', 'name_en': 'Maintenance & Repairs', 'type': 'EXPENSE', 'is_leaf': 1},
+      {'code': '5030', 'name_ar': 'مصروف الإيجار', 'name_en': 'Rent Expense', 'type': 'EXPENSE', 'is_leaf': 1},
+      {'code': '5031', 'name_ar': 'مصروفات كهرباء ومياه وهاتف وإنترنت', 'name_en': 'Utilities & Services', 'type': 'EXPENSE', 'is_leaf': 1},
     ];
 
     _db.transaction((tx) {
@@ -75,6 +79,17 @@ class AccountingRepository {
       WHERE company_id = ? AND code = ? 
       LIMIT 1
     ''', [companyId, code]);
+
+    if (result.isEmpty) return null;
+    return Account.fromMap(Map<String, dynamic>.from(result.first));
+  }
+
+  Account? getAccountById(String companyId, String id) {
+    final result = _db.select('''
+      SELECT * FROM chart_of_accounts 
+      WHERE company_id = ? AND id = ? 
+      LIMIT 1
+    ''', [companyId, id]);
 
     if (result.isEmpty) return null;
     return Account.fromMap(Map<String, dynamic>.from(result.first));
@@ -274,12 +289,15 @@ class AccountingRepository {
           VALUES (?, ?, ?, ?, ?, ?)
         ''', [lineId, entryId, accountId, debit, credit, memo]);
 
-        // Fetch account type to update normal balance
-        final accResult = tx.select('SELECT account_type FROM chart_of_accounts WHERE id = ?', [accountId]);
+        // Fetch account type and metadata to update normal balance
+        final accResult = tx.select('SELECT account_type, code, name_ar FROM chart_of_accounts WHERE id = ?', [accountId]);
         if (accResult.isEmpty) {
           throw ArgumentError('الحساب المحاسبي غير موجود: $accountId');
         }
-        final accType = AccountType.fromString(accResult.first['account_type'] as String);
+        final accRow = accResult.first;
+        final accType = AccountType.fromString(accRow['account_type'] as String);
+        final accCode = accRow['code'] as String?;
+        final accName = accRow['name_ar'] as String?;
 
         // Debit normal accounts: +Debit, -Credit
         // Credit normal accounts: +Credit, -Debit
@@ -298,6 +316,8 @@ class AccountingRepository {
           debit: debit,
           credit: credit,
           memo: memo,
+          accountCode: accCode,
+          accountName: accName,
         ));
       }
 
@@ -480,6 +500,11 @@ class AccountingRepository {
         return 'قيد تسوية يدوي';
       case 'PAYROLL':
         return 'مسير رواتب موظفين';
+      case 'SALARY_ADVANCE':
+        return 'سند صرف سلفة موظف';
+      case 'EXPENSE_VOUCHER':
+      case 'EXPENSE':
+        return 'سند صرف مصروفات وتشغيل';
       case 'CUSTOMER_PAYMENT':
         return 'سند قبض عميل';
       case 'SUPPLIER_PAYMENT':
@@ -752,5 +777,206 @@ class AccountingRepository {
       liabilityItems: liabilityItems,
       equityItems: equityItems,
     );
+  }
+
+  /// Ensures that standard accounts needed for expenses exist
+  Account ensureAccount({
+    required String companyId,
+    required String code,
+    required String nameAr,
+    required String nameEn,
+    required AccountType accountType,
+  }) {
+    final existing = getAccountByCode(companyId, code);
+    if (existing != null) return existing;
+
+    const uuid = Uuid();
+    final newId = 'acc_${uuid.v4()}';
+    _db.execute('''
+      INSERT INTO chart_of_accounts (id, company_id, code, name_ar, name_en, account_type, is_leaf, is_active, current_balance)
+      VALUES (?, ?, ?, ?, ?, ?, 1, 1, 0)
+    ''', [newId, companyId, code, nameAr, nameEn, accountType.code]);
+
+    return getAccountById(companyId, newId)!;
+  }
+
+  /// Posts an expense or fixed asset purchase voucher with automatic double-entry journal
+  ExpenseVoucher postExpenseVoucher({
+    required String companyId,
+    required String branchId,
+    required String userId,
+    required String category, // 'RENT', 'UTILITIES', 'MAINTENANCE', 'FIXED_ASSET', 'SUPPLIES', 'OTHER'
+    required int amountCents,
+    required String paymentMethod, // 'CASH', 'BANK'
+    required String description,
+    String? referenceNo,
+    DateTime? voucherDate,
+  }) {
+    seedStandardChartOfAccounts(companyId);
+
+    final vDate = voucherDate ?? DateTime.now();
+    final paymentCode = paymentMethod.toUpperCase() == 'BANK' ? '1020' : '1010';
+    final paymentAcc = getAccountByCode(companyId, paymentCode);
+    if (paymentAcc == null) {
+      throw StateError('حساب وسيلة الدفع ($paymentCode) غير موجود في شجرة الحسابات');
+    }
+
+    // Determine target expense/asset account
+    String expenseCode;
+    String defaultArName;
+    AccountType accType = AccountType.expense;
+
+    switch (category.toUpperCase()) {
+      case 'RENT':
+        expenseCode = '5030';
+        defaultArName = 'مصروف الإيجار';
+        break;
+      case 'UTILITIES':
+        expenseCode = '5031';
+        defaultArName = 'مصروفات كهرباء ومياه وهاتف وإنترنت';
+        break;
+      case 'MAINTENANCE':
+        expenseCode = '5021';
+        defaultArName = 'مصروفات صيانة وإصلاحات وأعطال';
+        break;
+      case 'FIXED_ASSET':
+        expenseCode = '1500';
+        defaultArName = 'الأصول والمعدات الثابتة (أجهزة وكاميرات ورفوف)';
+        accType = AccountType.asset;
+        break;
+      case 'SUPPLIES':
+        expenseCode = '5020';
+        defaultArName = 'مصروفات إدارية وضيافة ومستلزمات';
+        break;
+      case 'OTHER':
+      default:
+        expenseCode = '5020';
+        defaultArName = 'مصروفات تشغيلية وعمومية أخرى';
+        break;
+    }
+
+    final targetAccount = ensureAccount(
+      companyId: companyId,
+      code: expenseCode,
+      nameAr: defaultArName,
+      nameEn: defaultArName,
+      accountType: accType,
+    );
+
+    const uuid = Uuid();
+    final voucherId = 'exp_${uuid.v4()}';
+    final voucherNumber = 'VOUCH-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+    final categoryAr = ExpenseVoucher.getCategoryArabicName(category);
+
+    // Double entry:
+    // Debit: Expense or Asset
+    // Credit: Cash or Bank
+    final journalEntry = postJournalEntry(
+      companyId: companyId,
+      branchId: branchId,
+      userId: userId,
+      entryNumber: 'JE-$voucherNumber',
+      entryDate: vDate,
+      sourceType: 'EXPENSE_VOUCHER',
+      sourceId: voucherId,
+      narration: 'سند صرف ($categoryAr): $description',
+      rawLines: [
+        {
+          'accountId': targetAccount.id,
+          'debit': amountCents,
+          'credit': 0,
+          'memo': description,
+        },
+        {
+          'accountId': paymentAcc.id,
+          'debit': 0,
+          'credit': amountCents,
+          'memo': 'صرف من ${paymentAcc.nameAr} - سند $voucherNumber',
+        },
+      ],
+    );
+
+    _db.execute('''
+      INSERT INTO expense_vouchers (
+        id, company_id, voucher_number, category, expense_account_id, payment_account_id,
+        amount_cents, payment_method, reference_no, description, voucher_date,
+        journal_entry_id, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', [
+      voucherId,
+      companyId,
+      voucherNumber,
+      category.toUpperCase(),
+      targetAccount.id,
+      paymentAcc.id,
+      amountCents,
+      paymentMethod.toUpperCase(),
+      referenceNo,
+      description,
+      vDate.toIso8601String().substring(0, 10),
+      journalEntry.id,
+      userId,
+    ]);
+
+    return ExpenseVoucher(
+      id: voucherId,
+      companyId: companyId,
+      voucherNumber: voucherNumber,
+      category: category.toUpperCase(),
+      expenseAccountId: targetAccount.id,
+      paymentAccountId: paymentAcc.id,
+      amountCents: amountCents,
+      paymentMethod: paymentMethod.toUpperCase(),
+      referenceNo: referenceNo,
+      description: description,
+      voucherDate: vDate,
+      journalEntryId: journalEntry.id,
+      createdBy: userId,
+      createdAt: DateTime.now(),
+      expenseAccountName: targetAccount.nameAr,
+      paymentAccountName: paymentAcc.nameAr,
+    );
+  }
+
+  /// Retrieves list of recorded expense vouchers
+  List<ExpenseVoucher> getExpenseVouchers(
+    String companyId, {
+    int limit = 100,
+    String? category,
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) {
+    final where = <String>['ev.company_id = ?'];
+    final params = <dynamic>[companyId];
+
+    if (category != null && category != 'ALL') {
+      where.add('ev.category = ?');
+      params.add(category.toUpperCase());
+    }
+    if (fromDate != null) {
+      where.add('date(ev.voucher_date) >= date(?)');
+      params.add(fromDate.toIso8601String().substring(0, 10));
+    }
+    if (toDate != null) {
+      where.add('date(ev.voucher_date) <= date(?)');
+      params.add(toDate.toIso8601String().substring(0, 10));
+    }
+
+    final sql = '''
+      SELECT 
+        ev.*,
+        exp_acc.name_ar as expense_account_name,
+        pay_acc.name_ar as payment_account_name
+      FROM expense_vouchers ev
+      JOIN chart_of_accounts exp_acc ON ev.expense_account_id = exp_acc.id
+      JOIN chart_of_accounts pay_acc ON ev.payment_account_id = pay_acc.id
+      WHERE ${where.join(' AND ')}
+      ORDER BY ev.voucher_date DESC, ev.created_at DESC
+      LIMIT ?
+    ''';
+    params.add(limit);
+
+    final res = _db.select(sql, params);
+    return res.map((r) => ExpenseVoucher.fromMap(Map<String, dynamic>.from(r))).toList();
   }
 }

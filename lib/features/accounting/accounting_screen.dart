@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/providers/app_state_provider.dart';
+import '../../core/printing/printer_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../domain/entities/accounting.dart';
 import '../../data/repositories/accounting_repository.dart';
@@ -158,7 +159,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                     trailing: Text(
-                      '${balance.toStringAsFixed(2)} SAR',
+                      '${balance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
@@ -347,11 +348,26 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                 ],
               ),
               const Spacer(),
-              ElevatedButton.icon(
-                onPressed: () => _showNewVoucherDialog(context, repo, companyId),
-                icon: const Icon(Icons.add_circle_outline_rounded),
-                label: const Text('سند قيد يدوي جديد'),
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPrimary, foregroundColor: Colors.white),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _showNewExpenseVoucherDialog(context, repo, companyId),
+                    icon: const Icon(Icons.outbox_rounded, color: Colors.teal),
+                    label: const Text('سند صرف مصروفات وتشغيل', style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.teal, width: 1.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => _showNewVoucherDialog(context, repo, companyId),
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    label: const Text('سند قيد يدوي جديد'),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPrimary, foregroundColor: Colors.white),
+                  ),
+                ],
               ),
             ],
           ),
@@ -408,7 +424,9 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                           DropdownMenuItem(value: 'SALES_INVOICE', child: Text('فواتير مبيعات')),
                           DropdownMenuItem(value: 'PURCHASE_INVOICE', child: Text('فواتير مشتريات')),
                           DropdownMenuItem(value: 'PURCHASE_GRN', child: Text('استلام بضاعة GRN')),
-                          DropdownMenuItem(value: 'PAYROLL', child: Text('مسير رواتب')),
+                          DropdownMenuItem(value: 'EXPENSE_VOUCHER', child: Text('سند صرف مصروفات وتشغيل')),
+                          DropdownMenuItem(value: 'SALARY_ADVANCE', child: Text('سند صرف سلفة موظف')),
+                          DropdownMenuItem(value: 'PAYROLL', child: Text('مسير رواتب موظفين')),
                           DropdownMenuItem(value: 'MANUAL_JOURNAL', child: Text('قيود يدوية وتسويات')),
                           DropdownMenuItem(value: 'REVERSAL', child: Text('قيود عكسية')),
                         ],
@@ -510,10 +528,10 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                   ),
                 ),
                 const Spacer(),
-                Text('إجمالي المدين: ${(totalDebits / 100.0).toStringAsFixed(2)} SAR',
+                Text('إجمالي المدين: ${(totalDebits / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 const SizedBox(width: 16),
-                Text('إجمالي الدائن: ${(totalCredits / 100.0).toStringAsFixed(2)} SAR',
+                Text('إجمالي الدائن: ${(totalCredits / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
               ],
             ),
@@ -586,7 +604,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              '$amount SAR',
+                              '$amount ${PrinterService.defaultCurrency}',
                               style: const TextStyle(
                                   fontWeight: FontWeight.bold, color: AppColors.success, fontSize: 14),
                             ),
@@ -730,6 +748,248 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
     );
   }
 
+  void _showNewExpenseVoucherDialog(BuildContext context, AccountingRepository repo, String companyId) {
+    String selectedCategory = 'RENT';
+    String paymentMethod = 'CASH';
+    final amountCtrl = TextEditingController();
+    final descCtrl = TextEditingController(text: 'سداد إيجار المحل');
+    final refCtrl = TextEditingController();
+    DateTime voucherDate = DateTime.now();
+
+    final categories = [
+      {'code': 'RENT', 'title': 'إيجار المقر / المحل الشهري أو السنوي', 'icon': Icons.storefront_rounded},
+      {'code': 'UTILITIES', 'title': 'فواتير تشغيل (كهرباء ومياه وهاتف وإنترنت)', 'icon': Icons.bolt_rounded},
+      {'code': 'MAINTENANCE', 'title': 'صيانة وإصلاح أعطال ومعدات', 'icon': Icons.build_rounded},
+      {'code': 'FIXED_ASSET', 'title': 'شراء أصول ومعدات (كاميرات مراقبة، رفوف، أجهزة)', 'icon': Icons.videocam_rounded},
+      {'code': 'SUPPLIES', 'title': 'مستلزمات نظافة وضيافة وأدوات مكتبية', 'icon': Icons.coffee_rounded},
+      {'code': 'OTHER', 'title': 'مصروفات تشغيلية وعمومية أخرى', 'icon': Icons.payments_rounded},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.outbox_rounded, color: Colors.teal),
+                ),
+                const SizedBox(width: 10),
+                const Text('سند صرف وتسجيل مصروفات وتشغيل / أصول'),
+              ],
+            ),
+            content: SizedBox(
+              width: 540,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'تسجيل مباشر للمصروفات مع إنشاء القيد المزدوج الآلي وتحديث أرصدة الخزينة والبنك',
+                      style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 1. Expense Category
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedCategory,
+                      decoration: const InputDecoration(
+                        labelText: 'تصنيف المصروف / البند',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.category_rounded),
+                      ),
+                      items: categories.map((c) {
+                        return DropdownMenuItem<String>(
+                          value: c['code'] as String,
+                          child: Row(
+                            children: [
+                              Icon(c['icon'] as IconData, size: 18, color: Colors.teal),
+                              const SizedBox(width: 8),
+                              Text(c['title'] as String, style: const TextStyle(fontSize: 13)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDialogState(() {
+                            selectedCategory = val;
+                            if (val == 'RENT') descCtrl.text = 'سداد إيجار المحل';
+                            if (val == 'UTILITIES') descCtrl.text = 'سداد فاتورة الكهرباء والإنترنت';
+                            if (val == 'MAINTENANCE') descCtrl.text = 'صيانة وإصلاح أعطال';
+                            if (val == 'FIXED_ASSET') descCtrl.text = 'شراء كاميرات مراقبة أو رفوف جديدة';
+                            if (val == 'SUPPLIES') descCtrl.text = 'شراء مستلزمات نظافة وضيافة';
+                            if (val == 'OTHER') descCtrl.text = 'مصروفات تشغيلية متنوعة';
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 2. Amount & Payment Method
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: TextField(
+                            controller: amountCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: InputDecoration(
+                              labelText: 'المبلغ (${PrinterService.defaultCurrency})',
+                              border: const OutlineInputBorder(),
+                              prefixIcon: const Icon(Icons.attach_money_rounded),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: paymentMethod,
+                            decoration: const InputDecoration(
+                              labelText: 'طريقة الدفع',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.account_balance_wallet_rounded),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'CASH', child: Text('نقداً (الخزينة)')),
+                              DropdownMenuItem(value: 'BANK', child: Text('بنك / شبكة')),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) setDialogState(() => paymentMethod = val);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 3. Description
+                    TextField(
+                      controller: descCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'البيان / تفاصيل المصروف *',
+                        hintText: 'مثال: إيجار شهر نوفمبر، أو شراء 4 كاميرات مراقبة هيكفيجن...',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.notes_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 4. Reference & Date
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: refCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'رقم الفاتورة / المرجع (اختياري)',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.tag_rounded),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: voucherDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime(2030),
+                              );
+                              if (picked != null) {
+                                setDialogState(() => voucherDate = picked);
+                              }
+                            },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'تاريخ الصرف',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.calendar_today_rounded),
+                              ),
+                              child: Text(
+                                DateFormat('yyyy-MM-dd').format(voucherDate),
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade700,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+                icon: const Icon(Icons.check_circle_rounded),
+                label: const Text('تسجيل وترحيل سند الصرف'),
+                onPressed: () {
+                  final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
+                  final desc = descCtrl.text.trim();
+                  if (amount <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('يرجى إدخال مبلغ صحيح أكبر من الصفر'), backgroundColor: AppColors.error),
+                    );
+                    return;
+                  }
+                  if (desc.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('يرجى كتابة بيان ووصف المصروف'), backgroundColor: AppColors.error),
+                    );
+                    return;
+                  }
+
+                  try {
+                    final voucher = repo.postExpenseVoucher(
+                      companyId: companyId,
+                      branchId: _getBranchId(),
+                      userId: _getUserId(),
+                      category: selectedCategory,
+                      amountCents: (amount * 100).round(),
+                      paymentMethod: paymentMethod,
+                      description: desc,
+                      referenceNo: refCtrl.text.trim().isEmpty ? null : refCtrl.text.trim(),
+                      voucherDate: voucherDate,
+                    );
+
+                    Navigator.pop(ctx);
+                    setState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('تم تسجيل سند الصرف رقم ${voucher.voucherNumber} وترحيل القيد المحاسبي بنجاح'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('خطأ أثناء حفظ سند الصرف: $e'), backgroundColor: AppColors.error),
+                    );
+                  }
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _showNewVoucherDialog(BuildContext context, AccountingRepository repo, String companyId) {
     final accounts = repo.getAccounts(companyId);
     final narrationCtrl = TextEditingController(text: 'قيد يومية تسوية يدوية');
@@ -864,9 +1124,9 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('إجمالي المدين: ${(totalDebit / 100.0).toStringAsFixed(2)} SAR',
+                          Text('إجمالي المدين: ${(totalDebit / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                               style: const TextStyle(fontWeight: FontWeight.bold)),
-                          Text('إجمالي الدائن: ${(totalCredit / 100.0).toStringAsFixed(2)} SAR',
+                          Text('إجمالي الدائن: ${(totalCredit / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                               style: const TextStyle(fontWeight: FontWeight.bold)),
                           Row(
                             children: [
@@ -874,7 +1134,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                                   color: isBalanced ? AppColors.success : AppColors.error),
                               const SizedBox(width: 6),
                               Text(
-                                isBalanced ? 'القيد متوازن تماماً' : 'غير متوازن (الفرق: ${((totalDebit - totalCredit).abs() / 100.0).toStringAsFixed(2)} SAR)',
+                                isBalanced ? 'القيد متوازن تماماً' : 'غير متوازن (الفرق: ${((totalDebit - totalCredit).abs() / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency})',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: isBalanced ? AppColors.success : AppColors.error,
@@ -974,7 +1234,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                   ],
                 ),
                 Text(
-                  'المجموع العام: ${(totalDebits / 100.0).toStringAsFixed(2)} SAR',
+                  'المجموع العام: ${(totalDebits / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ],
@@ -985,13 +1245,13 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
             child: Card(
               child: SingleChildScrollView(
                 child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('رقم الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('اسم الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('نوع الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('مجموع المدين (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('مجموع الدائن (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('الرصيد الصافي (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
+                  columns: [
+                    const DataColumn(label: Text('رقم الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
+                    const DataColumn(label: Text('اسم الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
+                    const DataColumn(label: Text('نوع الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('مجموع المدين (${PrinterService.defaultCurrency})', style: const TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('مجموع الدائن (${PrinterService.defaultCurrency})', style: const TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('الرصيد الصافي (${PrinterService.defaultCurrency})', style: const TextStyle(fontWeight: FontWeight.bold))),
                   ],
                   rows: [
                     ...rows.map((r) {
@@ -1029,7 +1289,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                           (totalCredits / 100.0).toStringAsFixed(2),
                           style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.success),
                         )),
-                        const DataCell(Text('0.00 SAR (موزون)', style: TextStyle(fontWeight: FontWeight.bold))),
+                        DataCell(Text('0.00 ${PrinterService.defaultCurrency} (موزون)', style: const TextStyle(fontWeight: FontWeight.bold))),
                       ],
                     ),
                   ],
@@ -1097,7 +1357,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                           ),
                         ),
                         Text(
-                          '${(income.netProfitCents / 100.0).toStringAsFixed(2)} SAR',
+                          '${(income.netProfitCents / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 18,
@@ -1191,7 +1451,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
             ),
           ),
           Text(
-            '${(amountCents / 100.0).toStringAsFixed(2)} SAR',
+            '${(amountCents / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
             style: TextStyle(
               fontWeight: (isBold || isHeader) ? FontWeight.bold : FontWeight.normal,
               fontSize: isHeader ? 15 : (isBold ? 15 : 13),
@@ -1210,7 +1470,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
-          Text('${(amountCents / 100.0).toStringAsFixed(2)} SAR',
+          Text('${(amountCents / 100.0).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
               style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
         ],
       ),
@@ -1261,13 +1521,13 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                   ? const Center(child: Text('لا توجد حركات مسجلة لهذا الحساب'))
                   : SingleChildScrollView(
                       child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('رقم القيد', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('التاريخ', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('البيان / الوصف', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('مدين (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('دائن (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('الرصيد التراكمي (SAR)', style: TextStyle(fontWeight: FontWeight.bold))),
+                        columns: [
+                          const DataColumn(label: Text('رقم القيد', style: TextStyle(fontWeight: FontWeight.bold))),
+                          const DataColumn(label: Text('التاريخ', style: TextStyle(fontWeight: FontWeight.bold))),
+                          const DataColumn(label: Text('البيان / الوصف', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('مدين (${PrinterService.defaultCurrency})', style: const TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('دائن (${PrinterService.defaultCurrency})', style: const TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('الرصيد التراكمي (${PrinterService.defaultCurrency})', style: const TextStyle(fontWeight: FontWeight.bold))),
                         ],
                         rows: lines.map((l) {
                           return DataRow(

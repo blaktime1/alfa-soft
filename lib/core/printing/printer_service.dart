@@ -115,19 +115,30 @@ class PrinterService {
     _setSetting('invoice_language', lang.toUpperCase());
   }
 
+  static String _cachedDefaultCurrency = 'SAR';
+  static String get defaultCurrency => _cachedDefaultCurrency;
+
   String getDefaultCurrency() {
     try {
       final rows = _db.select("SELECT value FROM system_settings WHERE key = 'default_currency' LIMIT 1");
       if (rows.isNotEmpty) {
         final val = rows.first['value'] as String?;
-        if (val != null && val.isNotEmpty) return val.toUpperCase();
+        if (val != null && val.isNotEmpty) {
+          _cachedDefaultCurrency = val.toUpperCase();
+          return _cachedDefaultCurrency;
+        }
       }
     } catch (_) {}
-    return 'SAR';
+    return _cachedDefaultCurrency;
   }
 
   void setDefaultCurrency(String cur) {
-    _setSetting('default_currency', cur.toUpperCase());
+    final upper = cur.toUpperCase();
+    _cachedDefaultCurrency = upper;
+    _setSetting('default_currency', upper);
+    try {
+      _db.execute("UPDATE companies SET currency_code = ?, updated_at = datetime('now')", [upper]);
+    } catch (_) {}
   }
 
   double getExchangeRate(String currency) {

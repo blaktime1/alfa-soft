@@ -135,57 +135,108 @@ class EnterpriseRepository {
     required String periodMonth, // 'YYYY-MM'
   }) {
     return _db.transaction((tx) {
-      // 1. Fetch active employees
+      // 1. Check if payroll run already exists for this month
+      final existingRunRows = tx.select(
+        'SELECT * FROM payroll_runs WHERE company_id = ? AND period_month = ?',
+        [companyId, periodMonth],
+      );
+
+      String runId;
+      final now = DateTime.now();
+
+      if (existingRunRows.isNotEmpty) {
+        final existingRun = existingRunRows.first;
+        final status = existingRun['status'] as String;
+        if (status == 'POSTED_TO_JOURNAL' || status == 'APPROVED') {
+          throw StateError(
+            'تم اعتماد وترحيل مسير رواتب شهر $periodMonth مسبقاً في الدفاتر المحاسبية. لا يمكن إعادة توليده لمنع ازدواجية الصرف.',
+          );
+        }
+        // If it was DRAFT, delete old slips so we can recalculate freshly
+        runId = existingRun['id'] as String;
+        tx.execute('DELETE FROM salary_slips WHERE payroll_run_id = ?', [runId]);
+      } else {
+        runId = _uuid.v4();
+      }
+
+      // 2. Fetch active employees
       final empRows = tx.select(
         "SELECT * FROM employees WHERE company_id = ? AND status = 'ACTIVE'",
         [companyId],
       );
 
       if (empRows.isEmpty) {
-        throw Exception('لا يوجد موظفون نشطون مسجلون لتوليد مسير الرواتب لهذا الشهر.');
+        throw StateError('لا يوجد موظفون نشطون مسجلون لتوليد مسير الرواتب لهذا الشهر.');
       }
-
-      final runId = _uuid.v4();
-      final now = DateTime.now();
 
       int totalGross = 0;
       int totalDeductions = 0;
       int totalNet = 0;
 
-      // Calculate totals first
+      final empCalculations = <Map<String, dynamic>>[];
+
       for (final row in empRows) {
+        final empId = row['id'] as String;
         final basic = row['basic_salary'] as int;
         final housing = row['housing_allowance'] as int? ?? 0;
         final transport = row['transport_allowance'] as int? ?? 0;
         final allowances = housing + transport;
-        final deductions = 0;
-        final net = basic + allowances - deductions;
+        final gross = basic + allowances;
 
-        totalGross += (basic + allowances);
+        // Query pending advances for this employee eligible up to this month
+        final advRows = tx.select('''
+          SELECT COALESCE(SUM(amount_cents), 0) as total_advances
+          FROM salary_advances
+          WHERE company_id = ? AND employee_id = ? AND status = 'PENDING' AND repayment_month <= ?
+        ''', [companyId, empId, periodMonth]);
+
+        int advances = 0;
+        if (advRows.isNotEmpty) {
+          advances = advRows.first['total_advances'] as int? ?? 0;
+        }
+
+        // Deductions capped at gross salary
+        final deductions = advances > gross ? gross : advances;
+        final net = gross - deductions;
+
+        totalGross += gross;
         totalDeductions += deductions;
         totalNet += net;
+
+        empCalculations.add({
+          'empId': empId,
+          'name': row['full_name'] as String,
+          'basic': basic,
+          'allowances': allowances,
+          'deductions': deductions,
+          'net': net,
+        });
       }
 
-      // Insert Parent Header first (FK constraint)
-      tx.execute(
-        '''
-        INSERT INTO payroll_runs (
-          id, company_id, period_month, total_gross, total_deductions, total_net, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?)
-        ''',
-        [runId, companyId, periodMonth, totalGross, totalDeductions, totalNet, now.toIso8601String()],
-      );
+      // Upsert Payroll Run Header
+      if (existingRunRows.isNotEmpty) {
+        tx.execute(
+          '''
+          UPDATE payroll_runs
+          SET total_gross = ?, total_deductions = ?, total_net = ?, status = 'DRAFT'
+          WHERE id = ?
+          ''',
+          [totalGross, totalDeductions, totalNet, runId],
+        );
+      } else {
+        tx.execute(
+          '''
+          INSERT INTO payroll_runs (
+            id, company_id, period_month, total_gross, total_deductions, total_net, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?)
+          ''',
+          [runId, companyId, periodMonth, totalGross, totalDeductions, totalNet, now.toIso8601String()],
+        );
+      }
 
       final slips = <SalarySlip>[];
 
-      for (final row in empRows) {
-        final basic = row['basic_salary'] as int;
-        final housing = row['housing_allowance'] as int? ?? 0;
-        final transport = row['transport_allowance'] as int? ?? 0;
-        final allowances = housing + transport;
-        final deductions = 0;
-        final net = basic + allowances - deductions;
-
+      for (final calc in empCalculations) {
         final slipId = _uuid.v4();
         tx.execute(
           '''
@@ -193,18 +244,26 @@ class EnterpriseRepository {
             id, payroll_run_id, employee_id, basic_salary, allowances, deductions, net_salary, payment_method
           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'BANK_TRANSFER')
           ''',
-          [slipId, runId, row['id'] as String, basic, allowances, deductions, net],
+          [
+            slipId,
+            runId,
+            calc['empId'],
+            calc['basic'],
+            calc['allowances'],
+            calc['deductions'],
+            calc['net'],
+          ],
         );
 
         slips.add(SalarySlip(
           id: slipId,
           payrollRunId: runId,
-          employeeId: row['id'] as String,
-          employeeName: row['full_name'] as String,
-          basicSalary: basic,
-          allowances: allowances,
-          deductions: deductions,
-          netSalary: net,
+          employeeId: calc['empId'] as String,
+          employeeName: calc['name'] as String,
+          basicSalary: calc['basic'] as int,
+          allowances: calc['allowances'] as int,
+          deductions: calc['deductions'] as int,
+          netSalary: calc['net'] as int,
         ));
       }
 
@@ -237,8 +296,30 @@ class EnterpriseRepository {
     );
   }
 
+  /// Retrieves the latest payroll run for a company
+  PayrollRun? getLatestPayrollRun(String companyId) {
+    final rows = _db.select(
+      'SELECT * FROM payroll_runs WHERE company_id = ? ORDER BY period_month DESC, created_at DESC LIMIT 1',
+      [companyId],
+    );
+    if (rows.isEmpty) return null;
+    final run = rows.first;
+    final runId = run['id'] as String;
+
+    final slipRows = _db.select('''
+      SELECT ss.*, emp.full_name
+      FROM salary_slips ss
+      JOIN employees emp ON ss.employee_id = emp.id
+      WHERE ss.payroll_run_id = ?
+    ''', [runId]);
+
+    final slips = slipRows.map((r) => SalarySlip.fromMap(Map<String, dynamic>.from(r))).toList();
+    return PayrollRun.fromMap(Map<String, dynamic>.from(run), slips);
+  }
+
   /// Automatically posts an approved payroll run to the general ledger (Double-entry accounting)
   /// Debit: 5101 Salaries Expense
+  /// Credit: 1150 Employee Advances (if deductions exist)
   /// Credit: 2105 Salaries Payable
   JournalEntry postPayrollToGeneralLedger({
     required String payrollRunId,
@@ -253,68 +334,254 @@ class EnterpriseRepository {
     );
 
     if (runRows.isEmpty) {
-      throw Exception('مسير الرواتب غير موجود.');
+      throw StateError('مسير الرواتب غير موجود.');
     }
 
     final run = runRows.first;
     if (run['status'] != 'APPROVED') {
-      throw Exception('لا يمكن ترحيل مسير الرواتب قبل اعتماده والموافقة عليه.');
+      throw StateError('لا يمكن ترحيل مسير الرواتب قبل اعتماده والموافقة عليه.');
     }
 
+    final totalGross = run['total_gross'] as int;
+    final totalDeductions = run['total_deductions'] as int;
     final totalNet = run['total_net'] as int;
+    final periodMonth = run['period_month'] as String;
+
+    accountingRepo.seedStandardChartOfAccounts(companyId);
 
     // Locate or seed required accounts
-    final salaryExpenseAcc = accountingRepo.getAccountByCode(companyId, '5101') ??
-        accountingRepo.createAccount(
-          companyId: companyId,
-          code: '5101',
-          nameAr: 'مصروفات الرواتب والأجور',
-          accountType: AccountType.expense,
-        );
+    final salaryExpenseAcc = accountingRepo.ensureAccount(
+      companyId: companyId,
+      code: '5101',
+      nameAr: 'مصروفات الرواتب والأجور',
+      nameEn: 'Salaries & Wages Expense',
+      accountType: AccountType.expense,
+    );
 
-    final salaryPayableAcc = accountingRepo.getAccountByCode(companyId, '2105') ??
-        accountingRepo.createAccount(
-          companyId: companyId,
-          code: '2105',
-          nameAr: 'أمانات ومستحقات رواتب الموظفين',
-          accountType: AccountType.liability,
-        );
+    final salaryPayableAcc = accountingRepo.ensureAccount(
+      companyId: companyId,
+      code: '2105',
+      nameAr: 'أمانات ومستحقات رواتب الموظفين',
+      nameEn: 'Salaries Payable',
+      accountType: AccountType.liability,
+    );
+
+    final List<Map<String, dynamic>> rawLines = [
+      // 1. Debit Total Gross Salary Expense
+      {
+        'accountId': salaryExpenseAcc.id,
+        'debit': totalGross,
+        'credit': 0,
+        'memo': 'إجمالي استحقاق مسير رواتب شهر $periodMonth',
+      },
+    ];
+
+    // 2. Credit Advances if any were deducted
+    if (totalDeductions > 0) {
+      final advanceAcc = accountingRepo.ensureAccount(
+        companyId: companyId,
+        code: '1150',
+        nameAr: 'سلف وعهد الموظفين',
+        nameEn: 'Employee Advances',
+        accountType: AccountType.asset,
+      );
+
+      rawLines.add({
+        'accountId': advanceAcc.id,
+        'debit': 0,
+        'credit': totalDeductions,
+        'memo': 'استقطاع سلف الموظفين من مسير شهر $periodMonth',
+      });
+    }
+
+    // 3. Credit Net Salaries Payable
+    rawLines.add({
+      'accountId': salaryPayableAcc.id,
+      'debit': 0,
+      'credit': totalNet,
+      'memo': 'صافي مستحقات رواتب الموظفين لشهر $periodMonth الواجب سدادها',
+    });
 
     final entry = accountingRepo.postJournalEntry(
       companyId: companyId,
       branchId: branchId,
       userId: userId,
-      entryNumber: 'JE-PAYROLL-${run['period_month']}',
+      entryNumber: 'JE-PAYROLL-$periodMonth',
       entryDate: DateTime.now(),
       sourceType: 'PAYROLL',
       sourceId: payrollRunId,
-      narration: 'قيد رواتب شهر ${run['period_month']} — إجمالي صافي: ${(totalNet / 100).toStringAsFixed(2)} ر.س',
+      narration: 'قيد رواتب شهر $periodMonth — إجمالي: ${(totalGross / 100).toStringAsFixed(2)} - استقطاعات: ${(totalDeductions / 100).toStringAsFixed(2)} - صافي: ${(totalNet / 100).toStringAsFixed(2)}',
+      rawLines: rawLines,
+    );
+
+    _db.transaction((tx) {
+      tx.execute(
+        '''
+        UPDATE payroll_runs
+        SET status = 'POSTED_TO_JOURNAL', posted_journal_entry_id = ?
+        WHERE id = ?
+        ''',
+        [entry.id, payrollRunId],
+      );
+
+      // Mark associated pending advances up to this period as DEDUCTED
+      tx.execute(
+        '''
+        UPDATE salary_advances
+        SET status = 'DEDUCTED', payroll_run_id = ?
+        WHERE company_id = ? AND status = 'PENDING' AND repayment_month <= ?
+        ''',
+        [payrollRunId, companyId, periodMonth],
+      );
+    });
+
+    return entry;
+  }
+
+  // -------------------------------------------------------------
+  // SALARY ADVANCES (سلف الموظفين وسحب جزء من الراتب)
+  // -------------------------------------------------------------
+
+  /// Records a salary advance for an employee and posts double-entry accounting entry
+  SalaryAdvance recordSalaryAdvance({
+    required String companyId,
+    required String branchId,
+    required String userId,
+    required String employeeId,
+    required int amountCents,
+    required String paymentMethod, // 'CASH' | 'BANK'
+    required String repaymentMonth, // 'YYYY-MM'
+    String? notes,
+    required AccountingRepository accountingRepo,
+  }) {
+    if (amountCents <= 0) {
+      throw ArgumentError('مبلغ السلفة يجب أن يكون أكبر من الصفر');
+    }
+
+    final empRows = _db.select('SELECT full_name FROM employees WHERE id = ?', [employeeId]);
+    if (empRows.isEmpty) {
+      throw ArgumentError('الموظف المحدد غير موجود في النظام');
+    }
+    final employeeName = empRows.first['full_name'] as String;
+
+    final id = _uuid.v4();
+    final now = DateTime.now();
+    final advanceNumber = 'ADV-${now.millisecondsSinceEpoch.toString().substring(5)}';
+
+    accountingRepo.seedStandardChartOfAccounts(companyId);
+
+    // 1150: سلف وعهد الموظفين (Asset)
+    final advanceAccount = accountingRepo.ensureAccount(
+      companyId: companyId,
+      code: '1150',
+      nameAr: 'سلف وعهد الموظفين',
+      nameEn: 'Employee Advances',
+      accountType: AccountType.asset,
+    );
+
+    // 1010 or 1020: الخزينة أو البنك
+    final paymentCode = paymentMethod.toUpperCase() == 'BANK' ? '1020' : '1010';
+    final paymentAccount = accountingRepo.getAccountByCode(companyId, paymentCode) ??
+        accountingRepo.ensureAccount(
+          companyId: companyId,
+          code: paymentCode,
+          nameAr: paymentMethod.toUpperCase() == 'BANK' ? 'الحساب البنكي / نقاط البيع' : 'الخزينة النقدية الرئيسية',
+          nameEn: paymentMethod.toUpperCase() == 'BANK' ? 'Bank Account' : 'Cash',
+          accountType: AccountType.asset,
+        );
+
+    // Double entry:
+    // Debit: 1150 سلف الموظفين
+    // Credit: 1010/1020 وسيلة الدفع
+    final je = accountingRepo.postJournalEntry(
+      companyId: companyId,
+      branchId: branchId,
+      userId: userId,
+      entryNumber: 'JE-$advanceNumber',
+      entryDate: now,
+      sourceType: 'SALARY_ADVANCE',
+      sourceId: id,
+      narration: 'سند صرف سلفة على الراتب للموظف ($employeeName) لشهر $repaymentMonth',
       rawLines: [
         {
-          'accountId': salaryExpenseAcc.id,
-          'debit': totalNet,
+          'accountId': advanceAccount.id,
+          'debit': amountCents,
           'credit': 0,
-          'memo': 'إثبات استحقاق مسير رواتب شهر ${run['period_month']}',
+          'memo': 'سلفة على راتب شهر $repaymentMonth - $employeeName',
         },
         {
-          'accountId': salaryPayableAcc.id,
+          'accountId': paymentAccount.id,
           'debit': 0,
-          'credit': totalNet,
-          'memo': 'إثبات التزام رواتب الموظفين لشهر ${run['period_month']}',
+          'credit': amountCents,
+          'memo': 'صرف سلفة للموظف $employeeName من ${paymentAccount.nameAr}',
         },
       ],
     );
 
-    _db.execute(
-      '''
-      UPDATE payroll_runs
-      SET status = 'POSTED_TO_JOURNAL', posted_journal_entry_id = ?
-      WHERE id = ?
-      ''',
-      [entry.id, payrollRunId],
-    );
+    _db.execute('''
+      INSERT INTO salary_advances (
+        id, company_id, employee_id, advance_number, amount_cents, payment_account_id,
+        payment_method, request_date, repayment_month, status, notes, journal_entry_id, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
+    ''', [
+      id,
+      companyId,
+      employeeId,
+      advanceNumber,
+      amountCents,
+      paymentAccount.id,
+      paymentMethod.toUpperCase(),
+      now.toIso8601String().substring(0, 10),
+      repaymentMonth,
+      notes,
+      je.id,
+      userId,
+      now.toIso8601String(),
+    ]);
 
-    return entry;
+    return SalaryAdvance(
+      id: id,
+      companyId: companyId,
+      employeeId: employeeId,
+      employeeName: employeeName,
+      advanceNumber: advanceNumber,
+      amountCents: amountCents,
+      paymentAccountId: paymentAccount.id,
+      paymentMethod: paymentMethod.toUpperCase(),
+      requestDate: now,
+      repaymentMonth: repaymentMonth,
+      status: 'PENDING',
+      notes: notes,
+      journalEntryId: je.id,
+      createdBy: userId,
+      createdAt: now,
+    );
+  }
+
+  /// Retrieves list of salary advances
+  List<SalaryAdvance> getSalaryAdvances(String companyId, {String? employeeId, String? status}) {
+    final where = <String>['sa.company_id = ?'];
+    final params = <dynamic>[companyId];
+
+    if (employeeId != null && employeeId.isNotEmpty) {
+      where.add('sa.employee_id = ?');
+      params.add(employeeId);
+    }
+    if (status != null && status != 'ALL') {
+      where.add('sa.status = ?');
+      params.add(status);
+    }
+
+    final sql = '''
+      SELECT sa.*, emp.full_name as employee_name
+      FROM salary_advances sa
+      JOIN employees emp ON sa.employee_id = emp.id
+      WHERE ${where.join(' AND ')}
+      ORDER BY sa.request_date DESC, sa.created_at DESC
+    ''';
+
+    final rows = _db.select(sql, params);
+    return rows.map((r) => SalaryAdvance.fromMap(Map<String, dynamic>.from(r))).toList();
   }
 
   // -------------------------------------------------------------

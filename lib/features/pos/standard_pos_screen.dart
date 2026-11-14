@@ -1133,23 +1133,6 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
           const Spacer(),
 
-          // Interface Switcher Button (Switch to Quick POS)
-          OutlinedButton.icon(
-            onPressed: () {
-              ref.read(posInterfaceStyleProvider.notifier).setStyle('QUICK');
-            },
-            icon: const Icon(Icons.touch_app_rounded, size: 16, color: Colors.amberAccent),
-            label: const Text(
-              'التبديل إلى الكاشير السريع (Touch)',
-              style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.amberAccent),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-            ),
-          ),
-          const SizedBox(width: 8),
-
           // "إغلاق" Red Button
           ElevatedButton.icon(
             onPressed: widget.onExit,
@@ -1270,26 +1253,36 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
               ),
               const SizedBox(width: 8),
 
-              // Currency
-              _buildFormDropdown<String>(
-                label: 'العملة',
-                value: _currencyCode,
-                items: const [
-                  DropdownMenuItem(value: 'YER', child: Text('ريال يمني')),
-                  DropdownMenuItem(value: 'SAR', child: Text('ريال سعودي')),
-                  DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي')),
-                ],
-                onChanged: (val) {
-                  if (val != null) {
-                    final db = ref.read(databaseServiceProvider);
-                    final rate = PrinterService(db).getExchangeRate(val);
-                    setState(() {
-                      _currencyCode = val;
-                      _exchangeRate = rate;
-                    });
-                  }
-                },
-                width: 130,
+              // Enforced System Currency Badge (Locked)
+              Container(
+                width: 145,
+                height: 48,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('العملة المعتمدة', style: TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(Icons.lock_rounded, size: 12, color: Colors.blue),
+                        const SizedBox(width: 4),
+                        Text(
+                          _currencyCode == 'YER'
+                              ? 'ريال يمني (YER)'
+                              : (_currencyCode == 'USD' ? 'دولار (\$ USD)' : 'ريال سعودي (SAR)'),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(width: 8),
 

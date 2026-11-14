@@ -938,59 +938,27 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
-              // Switch to Standard POS Button
-              OutlinedButton.icon(
-                onPressed: () {
-                  ref.read(posInterfaceStyleProvider.notifier).setStyle('STANDARD');
-                },
-                icon: const Icon(Icons.table_chart_rounded, size: 16, color: AppColors.brandPrimary),
-                label: const Text(
-                  'الكاشير الاعتيادي (ERP)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Currency Selector (SAR / USD / YER)
+              // Enforced System Currency Badge (Locked by Administration)
               Container(
                 height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
                   color: AppColors.brandSecondary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppColors.brandSecondary.withValues(alpha: 0.3)),
                 ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _currencyCode,
-                    icon: const Icon(Icons.monetization_on_rounded, color: AppColors.brandSecondary, size: 18),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'SAR',
-                        child: Text('SAR (ر.س)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandSecondary)),
-                      ),
-                      DropdownMenuItem(
-                        value: 'USD',
-                        child: Text('USD (\$)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandSecondary)),
-                      ),
-                      DropdownMenuItem(
-                        value: 'YER',
-                        child: Text('YER (ر.ي)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandSecondary)),
-                      ),
-                    ],
-                    onChanged: (newCurr) {
-                      if (newCurr != null) {
-                        final db = ref.read(databaseServiceProvider);
-                        final ps = PrinterService(db);
-                        setState(() {
-                          _currencyCode = newCurr;
-                          _exchangeRate = ps.getExchangeRate(newCurr);
-                        });
-                      }
-                    },
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.lock_rounded, color: AppColors.brandSecondary, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      _currencyCode == 'YER'
+                          ? 'العملة المعتمدة: ريال يمني (YER)'
+                          : (_currencyCode == 'USD' ? 'العملة المعتمدة: دولار (\$ USD)' : 'العملة المعتمدة: ريال سعودي (SAR)'),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandSecondary),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
