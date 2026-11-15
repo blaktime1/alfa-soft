@@ -19,6 +19,11 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   String _selectedAccountTypeFilter = 'ALL';
   String? _selectedLedgerAccountId;
 
+  // Vouchers Hub State & Filters
+  String _voucherCategoryFilter = 'ALL';
+  String _voucherStatusFilter = 'ALL'; // 'ALL', 'POSTED', 'REVERSED'
+  final _voucherSearchController = TextEditingController();
+
   // Journal Entries Filters
   String _journalDateFilter = 'ALL'; // 'TODAY', 'WEEK', 'MONTH', 'ALL', 'CUSTOM'
   DateTime? _journalFromDate;
@@ -29,12 +34,13 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _voucherSearchController.dispose();
     _journalSearchController.dispose();
     super.dispose();
   }
@@ -72,6 +78,7 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
           controller: _tabController,
           isScrollable: true,
           tabs: const [
+            Tab(icon: Icon(Icons.receipt_rounded), text: 'سندات الصرف والقبض (Vouchers Hub)'),
             Tab(icon: Icon(Icons.account_tree_rounded), text: 'دليل الحسابات (COA)'),
             Tab(icon: Icon(Icons.receipt_long_rounded), text: 'قيود اليومية (Journal Entries)'),
             Tab(icon: Icon(Icons.balance_rounded), text: 'ميزان المراجعة (Trial Balance)'),
@@ -83,11 +90,693 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
       body: TabBarView(
         controller: _tabController,
         children: [
+          _buildVouchersTab(context, repo, companyId),
           _buildChartOfAccountsTab(context, repo, companyId),
           _buildJournalEntriesTab(context, repo, companyId),
           _buildTrialBalanceTab(context, repo, companyId),
           _buildFinancialStatementsTab(context, repo, companyId),
           _buildGeneralLedgerTab(context, repo, companyId),
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // TAB 0: VOUCHERS HUB (سندات الصرف والقبض والإيجارات والمصروفات)
+  // -------------------------------------------------------------
+  Widget _buildVouchersTab(BuildContext context, AccountingRepository repo, String companyId) {
+    final db = ref.read(databaseServiceProvider);
+
+    // 1. Expense Vouchers
+    final expenseVouchers = repo.getExpenseVouchers(companyId);
+
+    // 2. Receipt Vouchers from journal_entries
+    final receiptRows = db.select('''
+      SELECT je.*,
+             COALESCE(
+               (SELECT c.name_ar FROM journal_lines jl JOIN chart_of_accounts c ON jl.account_id = c.id WHERE jl.journal_entry_id = je.id AND jl.credit > 0 LIMIT 1),
+               'إيرادات متنوعة'
+             ) as credit_account_name,
+             COALESCE(
+               (SELECT c.name_ar FROM journal_lines jl JOIN chart_of_accounts c ON jl.account_id = c.id WHERE jl.journal_entry_id = je.id AND jl.debit > 0 LIMIT 1),
+               'الصندوق الرئيسي'
+             ) as debit_account_name,
+             COALESCE(
+               (SELECT SUM(jl.debit) FROM journal_lines jl WHERE jl.journal_entry_id = je.id),
+               0
+             ) as amount_cents
+      FROM journal_entries je
+      WHERE je.company_id = ? AND (je.source_type = 'RECEIPT_VOUCHER' OR je.source_type = 'REVENUE_DEPOSIT')
+      ORDER BY je.entry_date DESC, je.created_at DESC
+    ''', [companyId]);
+
+    final List<_UnifiedVoucherEntry> allVouchers = [];
+
+    for (final ev in expenseVouchers) {
+      allVouchers.add(_UnifiedVoucherEntry(
+        id: ev.id,
+        number: ev.voucherNumber,
+        type: 'EXPENSE',
+        category: ev.category,
+        categoryAr: ExpenseVoucher.getCategoryArabicName(ev.category),
+        date: ev.voucherDate,
+        amount: ev.amountCents / 100.0,
+        description: ev.description,
+        targetAccount: ev.expenseAccountName ?? 'مصروفات تشغيلية',
+        treasuryAccount: ev.paymentAccountName ?? (ev.paymentMethod == 'BANK' ? 'البنك' : 'الصندوق الرئيسي'),
+        paymentMethod: ev.paymentMethod,
+        status: ev.status,
+        journalEntryId: ev.journalEntryId,
+        referenceNo: ev.referenceNo,
+        isExpense: true,
+      ));
+    }
+
+    for (final r in receiptRows) {
+      allVouchers.add(_UnifiedVoucherEntry(
+        id: r['id'] as String,
+        number: (r['source_id'] as String? ?? r['entry_number'] as String),
+        type: 'RECEIPT',
+        category: 'RECEIPT',
+        categoryAr: 'سند قبض وإيداع إيراد / إيجار',
+        date: DateTime.parse(r['entry_date'] as String),
+        amount: (r['amount_cents'] as int) / 100.0,
+        description: r['narration'] as String,
+        targetAccount: r['credit_account_name'] as String,
+        treasuryAccount: r['debit_account_name'] as String,
+        paymentMethod: 'CASH',
+        status: r['status'] as String,
+        journalEntryId: r['id'] as String,
+        referenceNo: null,
+        isExpense: false,
+      ));
+    }
+
+    // Sort by date descending
+    allVouchers.sort((a, b) => b.date.compareTo(a.date));
+
+    // Filter
+    final query = _voucherSearchController.text.trim().toLowerCase();
+    final filtered = allVouchers.where((v) {
+      // Category filter
+      if (_voucherCategoryFilter != 'ALL') {
+        if (_voucherCategoryFilter == 'EXPENSE' && !v.isExpense) return false;
+        if (_voucherCategoryFilter == 'RECEIPT' && v.isExpense) return false;
+        if (_voucherCategoryFilter != 'EXPENSE' && _voucherCategoryFilter != 'RECEIPT' && v.category != _voucherCategoryFilter) return false;
+      }
+      // Status filter
+      if (_voucherStatusFilter == 'POSTED' && (v.status == 'REVERSED' || v.status == 'CANCELLED')) return false;
+      if (_voucherStatusFilter == 'REVERSED' && (v.status != 'REVERSED' && v.status != 'CANCELLED')) return false;
+      // Search query
+      if (query.isNotEmpty) {
+        final matches = v.number.toLowerCase().contains(query) ||
+            v.description.toLowerCase().contains(query) ||
+            v.categoryAr.toLowerCase().contains(query) ||
+            v.targetAccount.toLowerCase().contains(query) ||
+            (v.referenceNo != null && v.referenceNo!.toLowerCase().contains(query));
+        if (!matches) return false;
+      }
+      return true;
+    }).toList();
+
+    // Statistics
+    double totalActiveExpenses = 0;
+    double totalActiveReceipts = 0;
+    int reversedCount = 0;
+
+    for (final v in allVouchers) {
+      if (v.status == 'REVERSED' || v.status == 'CANCELLED') {
+        reversedCount++;
+      } else {
+        if (v.isExpense) {
+          totalActiveExpenses += v.amount;
+        } else {
+          totalActiveReceipts += v.amount;
+        }
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // KPI Summary Cards
+          Row(
+            children: [
+              Expanded(
+                child: _buildVoucherKpiCard(
+                  title: 'إجمالي المصروفات التشغيلية السارية',
+                  value: '${totalActiveExpenses.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                  icon: Icons.outbox_rounded,
+                  color: Colors.red.shade700,
+                  bgColor: Colors.red.shade50,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildVoucherKpiCard(
+                  title: 'إجمالي المقبوضات والإيداعات السارية',
+                  value: '${totalActiveReceipts.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                  icon: Icons.move_to_inbox_rounded,
+                  color: Colors.green.shade700,
+                  bgColor: Colors.green.shade50,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildVoucherKpiCard(
+                  title: 'صافي التدفق المالي (إيداعات - مصروفات)',
+                  value: '${(totalActiveReceipts - totalActiveExpenses).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                  icon: Icons.account_balance_wallet_rounded,
+                  color: (totalActiveReceipts - totalActiveExpenses) >= 0 ? Colors.teal.shade700 : Colors.deepOrange.shade700,
+                  bgColor: (totalActiveReceipts - totalActiveExpenses) >= 0 ? Colors.teal.shade50 : Colors.deepOrange.shade50,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildVoucherKpiCard(
+                  title: 'السندات الملغاة والمعكوسة',
+                  value: '$reversedCount سند',
+                  icon: Icons.cancel_schedule_send_rounded,
+                  color: Colors.blueGrey.shade700,
+                  bgColor: Colors.blueGrey.shade50,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Action Toolbar & Search
+          Row(
+            children: [
+              // Search input
+              Expanded(
+                flex: 3,
+                child: TextField(
+                  controller: _voucherSearchController,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: 'ابحث برقم السند، البيان، الحساب، أو المرجع...',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    suffixIcon: _voucherSearchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 16),
+                            onPressed: () {
+                              _voucherSearchController.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Category Filter Dropdown
+              Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade400),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _voucherCategoryFilter,
+                    items: const [
+                      DropdownMenuItem(value: 'ALL', child: Text('جميع تصنيفات السندات')),
+                      DropdownMenuItem(value: 'EXPENSE', child: Text('سندات الصرف فقط')),
+                      DropdownMenuItem(value: 'RECEIPT', child: Text('سندات القبض والإيداع فقط')),
+                      DropdownMenuItem(value: 'RENT', child: Text('سندات إيجار المحل')),
+                      DropdownMenuItem(value: 'UTILITIES', child: Text('فواتير كهرباء ومياه وإنترنت')),
+                      DropdownMenuItem(value: 'MAINTENANCE', child: Text('صيانة وإصلاحات')),
+                      DropdownMenuItem(value: 'FIXED_ASSET', child: Text('كاميرات ومعدات وأصول')),
+                      DropdownMenuItem(value: 'SUPPLIES', child: Text('مستلزمات وضيافة')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setState(() => _voucherCategoryFilter = val);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Status Filter Dropdown
+              Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade400),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _voucherStatusFilter,
+                    items: const [
+                      DropdownMenuItem(value: 'ALL', child: Text('جميع الحالات')),
+                      DropdownMenuItem(value: 'POSTED', child: Text('السارية والمعتمدة فقط')),
+                      DropdownMenuItem(value: 'REVERSED', child: Text('الملغاة والمعكوسة فقط')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setState(() => _voucherStatusFilter = val);
+                    },
+                  ),
+                ),
+              ),
+              const Spacer(),
+
+              // Button: New Expense Voucher
+              ElevatedButton.icon(
+                icon: const Icon(Icons.outbox_rounded, size: 16),
+                label: const Text('سند صرف مصروفات جديد'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade700,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () => _showNewExpenseVoucherDialog(context, repo, companyId),
+              ),
+              const SizedBox(width: 8),
+
+              // Button: New Receipt Voucher
+              ElevatedButton.icon(
+                icon: const Icon(Icons.move_to_inbox_rounded, size: 16),
+                label: const Text('سند إيداع / قبض إيراد جديد'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.brandPrimary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () => _showReceiptVoucherDialog(context, repo, companyId),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Vouchers List Table
+          Expanded(
+            child: Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.receipt_long_outlined, size: 48, color: Colors.grey.shade400),
+                          const SizedBox(height: 8),
+                          const Text('لا توجد سندات صرف أو قبض مسجلة مطابقة للبحث', style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, idx) {
+                        final v = filtered[idx];
+                        final isReversed = v.status == 'REVERSED' || v.status == 'CANCELLED';
+
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          leading: CircleAvatar(
+                            backgroundColor: isReversed
+                                ? Colors.grey.shade200
+                                : (v.isExpense ? Colors.red.shade50 : Colors.green.shade50),
+                            child: Icon(
+                              isReversed
+                                  ? Icons.cancel_outlined
+                                  : (v.isExpense ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded),
+                              color: isReversed
+                                  ? Colors.grey
+                                  : (v.isExpense ? Colors.red.shade700 : Colors.green.shade700),
+                              size: 20,
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Text(
+                                v.number,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  decoration: isReversed ? TextDecoration.lineThrough : null,
+                                  color: isReversed ? Colors.grey : Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isReversed
+                                      ? Colors.grey.shade100
+                                      : (v.isExpense ? Colors.red.shade50 : Colors.green.shade50),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: isReversed
+                                        ? Colors.grey.shade300
+                                        : (v.isExpense ? Colors.red.shade200 : Colors.green.shade200),
+                                  ),
+                                ),
+                                child: Text(
+                                  v.categoryAr,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: isReversed
+                                        ? Colors.grey.shade700
+                                        : (v.isExpense ? Colors.red.shade800 : Colors.green.shade800),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (isReversed)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(4)),
+                                  child: const Text('ملغي ومعكوس', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red)),
+                                )
+                              else
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
+                                  child: const Text('معتمد وساري', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
+                                ),
+                            ],
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                Text('البيان: ${v.description}', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+                                const SizedBox(width: 12),
+                                Text('• الحساب: ${v.targetAccount}', style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                                const SizedBox(width: 12),
+                                Text('• الخزينة/الدفع: ${v.treasuryAccount}', style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                                const SizedBox(width: 12),
+                                Text('• التاريخ: ${v.date.toIso8601String().substring(0, 10)}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              ],
+                            ),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${v.amount.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  decoration: isReversed ? TextDecoration.lineThrough : null,
+                                  color: isReversed
+                                      ? Colors.grey
+                                      : (v.isExpense ? Colors.red.shade700 : Colors.green.shade700),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+
+                              // Action: View Journal Entry
+                              IconButton(
+                                icon: const Icon(Icons.menu_book_rounded, color: Colors.blueGrey, size: 20),
+                                tooltip: 'معاينة القيد المحاسبي المزدوج',
+                                onPressed: () => _showVoucherLinesDialog(context, v),
+                              ),
+
+                              // Action: Edit Voucher Notes
+                              if (!isReversed)
+                                IconButton(
+                                  icon: const Icon(Icons.edit_note_rounded, color: AppColors.brandPrimary, size: 20),
+                                  tooltip: 'تعديل بيان السند',
+                                  onPressed: () => _showEditVoucherDialog(context, repo, v),
+                                ),
+
+                              // Action: Void & Reverse Voucher
+                              if (!isReversed)
+                                IconButton(
+                                  icon: const Icon(Icons.cancel_outlined, color: AppColors.danger, size: 20),
+                                  tooltip: 'إلغاء وعكس السند (استرجاع الرصيد)',
+                                  onPressed: () => _confirmVoidVoucher(context, repo, v),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVoucherKpiCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.15),
+            radius: 18,
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title, style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showVoucherLinesDialog(BuildContext context, _UnifiedVoucherEntry v) {
+    if (v.journalEntryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يوجد قيد محاسبي مسجل')));
+      return;
+    }
+    final db = ref.read(databaseServiceProvider);
+    final lines = db.select('''
+      SELECT jl.*, c.code, c.name_ar, c.account_type
+      FROM journal_lines jl
+      JOIN chart_of_accounts c ON jl.account_id = c.id
+      WHERE jl.journal_entry_id = ?
+      ORDER BY jl.debit DESC, jl.credit DESC
+    ''', [v.journalEntryId]);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          children: [
+            const Icon(Icons.account_tree_rounded, color: AppColors.brandPrimary),
+            const SizedBox(width: 8),
+            Text('معاينة القيد المحاسبي المزدوج للسند (${v.number})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: SizedBox(
+          width: 650,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('البيان: ${v.description}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 4),
+              Text('التاريخ: ${v.date.toIso8601String().substring(0, 10)} | الحالة: ${v.status}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              const SizedBox(height: 12),
+              Container(
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
+                child: DataTable(
+                  headingRowColor: WidgetStateProperty.all(Colors.grey.shade100),
+                  columns: const [
+                    DataColumn(label: Text('كود الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('اسم الحساب', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('مدين (Debit)', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('دائن (Credit)', style: TextStyle(fontWeight: FontWeight.bold))),
+                  ],
+                  rows: lines.map((l) {
+                    final debit = (l['debit'] as int) / 100.0;
+                    final credit = (l['credit'] as int) / 100.0;
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(l['code'] as String, style: const TextStyle(fontWeight: FontWeight.bold))),
+                        DataCell(Text(l['name_ar'] as String)),
+                        DataCell(Text(debit > 0 ? debit.toStringAsFixed(2) : '-', style: TextStyle(color: debit > 0 ? Colors.green.shade700 : Colors.black))),
+                        DataCell(Text(credit > 0 ? credit.toStringAsFixed(2) : '-', style: TextStyle(color: credit > 0 ? Colors.red.shade700 : Colors.black))),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
+        ],
+      ),
+    );
+  }
+
+  void _showEditVoucherDialog(BuildContext context, AccountingRepository repo, _UnifiedVoucherEntry v) {
+    if (v.status == 'REVERSED' || v.status == 'CANCELLED') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يمكن تعديل سند ملغي ومعكوس')));
+      return;
+    }
+    final descCtrl = TextEditingController(text: v.description);
+    final refCtrl = TextEditingController(text: v.referenceNo ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.edit_note_rounded, color: AppColors.brandPrimary),
+            const SizedBox(width: 8),
+            Text('تعديل بيان السند (${v.number})'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: descCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'البيان والملاحظات *', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: refCtrl,
+              decoration: const InputDecoration(labelText: 'رقم المرجع / الشيك / الإيصال', border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () {
+              final newDesc = descCtrl.text.trim();
+              if (newDesc.isEmpty) return;
+              Navigator.pop(ctx);
+              final db = ref.read(databaseServiceProvider);
+              if (v.isExpense) {
+                repo.updateExpenseVoucher(
+                  voucherId: v.id,
+                  description: newDesc,
+                  referenceNo: refCtrl.text.trim().isEmpty ? null : refCtrl.text.trim(),
+                );
+              }
+              if (v.journalEntryId != null) {
+                db.execute(
+                  "UPDATE journal_entries SET narration = ? WHERE id = ?",
+                  ['${v.categoryAr}: $newDesc', v.journalEntryId],
+                );
+              }
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('تم تحديث بيان السند ${v.number} بنجاح'), backgroundColor: AppColors.success),
+              );
+            },
+            child: const Text('حفظ التعديلات'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmVoidVoucher(BuildContext context, AccountingRepository repo, _UnifiedVoucherEntry v) {
+    if (v.status == 'REVERSED' || v.status == 'CANCELLED') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('هذا السند ملغي ومعكوس مسبقاً')));
+      return;
+    }
+    if (v.journalEntryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يوجد قيد محاسبي مرتبط بهذا السند لإلغائه')));
+      return;
+    }
+
+    final reasonCtrl = TextEditingController(text: 'إلغاء بسبب خطأ في الإدخال');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          children: [
+            const Icon(Icons.cancel_outlined, color: AppColors.danger),
+            const SizedBox(width: 8),
+            Text('تأكيد إلغاء وعكس السند (${v.number})'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'هل ترغب فعلاً في إلغاء السند "${v.categoryAr}" بمبلغ ${v.amount.toStringAsFixed(2)} ${PrinterService.defaultCurrency}؟\n\nسيقوم النظام آلياً بتسجيل قيد عكسي متوازن واسترجاع المبالغ لحساب الخزينة/البنك.',
+              style: const TextStyle(fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              decoration: const InputDecoration(labelText: 'سبب الإلغاء والعكس *', border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تراجع')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+            onPressed: () {
+              final reason = reasonCtrl.text.trim().isEmpty ? 'إلغاء السند' : reasonCtrl.text.trim();
+              Navigator.pop(ctx);
+              try {
+                final userId = _getUserId();
+                repo.reverseJournalEntry(
+                  entryId: v.journalEntryId!,
+                  userId: userId,
+                  reason: reason,
+                );
+                final db = ref.read(databaseServiceProvider);
+                if (v.isExpense) {
+                  db.execute("UPDATE expense_vouchers SET status = 'CANCELLED' WHERE id = ?", [v.id]);
+                }
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('تم إلغاء وعكس السند ${v.number} واسترجاع الرصيد بنجاح'),
+                    backgroundColor: AppColors.success,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('خطأ أثناء إلغاء السند: $e'), backgroundColor: AppColors.danger),
+                );
+              }
+            },
+            child: const Text('تأكيد الإلغاء والعكس فوراً'),
+          ),
         ],
       ),
     );
@@ -1800,4 +2489,40 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
       ),
     );
   }
+}
+
+class _UnifiedVoucherEntry {
+  final String id;
+  final String number;
+  final String type; // 'EXPENSE' or 'RECEIPT'
+  final String category;
+  final String categoryAr;
+  final DateTime date;
+  final double amount;
+  final String description;
+  final String targetAccount;
+  final String treasuryAccount;
+  final String paymentMethod;
+  final String status;
+  final String? journalEntryId;
+  final String? referenceNo;
+  final bool isExpense;
+
+  _UnifiedVoucherEntry({
+    required this.id,
+    required this.number,
+    required this.type,
+    required this.category,
+    required this.categoryAr,
+    required this.date,
+    required this.amount,
+    required this.description,
+    required this.targetAccount,
+    required this.treasuryAccount,
+    required this.paymentMethod,
+    required this.status,
+    this.journalEntryId,
+    this.referenceNo,
+    required this.isExpense,
+  });
 }

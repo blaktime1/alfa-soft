@@ -45,7 +45,11 @@ class PurchaseRepository {
       final cost = item['unitCostCents'] as int;
       subtotalCents += qty * cost;
     }
-    final taxTotalCents = (subtotalCents * 0.15).round(); // 15% VAT
+    final taxRows = _db.select("SELECT value FROM system_settings WHERE key = 'tax_is_enabled' LIMIT 1");
+    final isTaxOn = taxRows.isEmpty || taxRows.first['value'] != '0';
+    final rateRows = _db.select("SELECT value FROM system_settings WHERE key = 'tax_rate_percent' LIMIT 1");
+    final rate = rateRows.isNotEmpty ? (double.tryParse(rateRows.first['value']?.toString() ?? '15') ?? 15.0) : 15.0;
+    final taxTotalCents = (isTaxOn && rate > 0) ? ((subtotalCents * (rate / 100.0)).round()) : 0;
     final grandTotalCents = subtotalCents + taxTotalCents;
 
     _db.transaction((tx) {
@@ -307,7 +311,11 @@ class PurchaseRepository {
       final cost = item['unitCostCents'] as int;
       subtotalCents += qty * cost;
     }
-    final taxTotalCents = (subtotalCents * 0.15).round();
+    final taxRows = _db.select("SELECT value FROM system_settings WHERE key = 'tax_is_enabled' LIMIT 1");
+    final isTaxOn = taxRows.isEmpty || taxRows.first['value'] != '0';
+    final rateRows = _db.select("SELECT value FROM system_settings WHERE key = 'tax_rate_percent' LIMIT 1");
+    final rate = rateRows.isNotEmpty ? (double.tryParse(rateRows.first['value']?.toString() ?? '15') ?? 15.0) : 15.0;
+    final taxTotalCents = (isTaxOn && rate > 0) ? ((subtotalCents * (rate / 100.0)).round()) : 0;
     final grandTotalCents = subtotalCents + taxTotalCents;
 
     _db.transaction((tx) {

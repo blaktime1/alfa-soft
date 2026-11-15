@@ -292,6 +292,7 @@ class ExpenseVoucher {
   final DateTime createdAt;
   final String? expenseAccountName;
   final String? paymentAccountName;
+  final String status; // 'POSTED', 'REVERSED', 'CANCELLED'
 
   const ExpenseVoucher({
     required this.id,
@@ -310,6 +311,7 @@ class ExpenseVoucher {
     required this.createdAt,
     this.expenseAccountName,
     this.paymentAccountName,
+    this.status = 'POSTED',
   });
 
   factory ExpenseVoucher.fromMap(Map<String, dynamic> map) {
@@ -330,6 +332,7 @@ class ExpenseVoucher {
       createdAt: DateTime.parse(map['created_at'] as String),
       expenseAccountName: map['expense_account_name'] as String?,
       paymentAccountName: map['payment_account_name'] as String?,
+      status: (map['journal_status'] ?? map['status'] ?? 'POSTED') as String,
     );
   }
 

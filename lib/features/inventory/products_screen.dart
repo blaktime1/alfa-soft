@@ -26,6 +26,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
   List<CategoryEntity> _categories = [];
   List<UnitEntity> _units = [];
   List<WarehouseEntity> _warehouses = [];
+  Map<String, int> _productStocks = {};
   String? _selectedCategoryId;
   bool _isLoading = true;
 
@@ -62,6 +63,13 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
         _warehouses = [];
         for (final b in branches) {
           _warehouses.addAll(orgRepo.getWarehouses(b.id));
+        }
+
+        try {
+          final stockRows = db.select('SELECT product_id, COALESCE(SUM(quantity), 0) as total_qty FROM inventory_balances GROUP BY product_id');
+          _productStocks = {for (final r in stockRows) r['product_id'] as String: (r['total_qty'] as int)};
+        } catch (_) {
+          _productStocks = {};
         }
       }
     } catch (_) {
@@ -1228,6 +1236,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                             DataColumn(label: Text('الباركود')),
                             DataColumn(label: Text('اسم الصنف')),
                             DataColumn(label: Text('التعبئة والكرتون')),
+                            DataColumn(label: Text('المخزون المتوفر')),
                             DataColumn(label: Text('سعر الشراء (التكلفة)')),
                             DataColumn(label: Text('سعر البيع (تجزئة)')),
                             DataColumn(label: Text('أدنى سعر (جملة)')),
@@ -1236,6 +1245,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                             DataColumn(label: Text('الإجراءات')),
                           ],
                           rows: _products.map((p) {
+                            final stockQty = _productStocks[p.id] ?? 0;
                             return DataRow(cells: [
                               DataCell(Text(p.sku, style: const TextStyle(fontWeight: FontWeight.bold))),
                               DataCell(Text(p.barcode ?? '—')),
@@ -1248,6 +1258,26 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                         side: BorderSide.none,
                                       )
                                     : const Text('حبة فقط', style: TextStyle(color: AppColors.lightTextSecondary, fontSize: 12)),
+                              ),
+                              DataCell(
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: stockQty > 0 ? Colors.green.withValues(alpha: 0.12) : Colors.red.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: stockQty > 0 ? Colors.green.shade300 : Colors.red.shade300),
+                                  ),
+                                  child: Text(
+                                    p.hasCarton && p.unitsPerCarton > 1
+                                        ? '${(stockQty ~/ p.unitsPerCarton)} كرتون و ${(stockQty % p.unitsPerCarton)} حبة'
+                                        : '$stockQty حبة',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                      color: stockQty > 0 ? Colors.green.shade800 : Colors.red.shade800,
+                                    ),
+                                  ),
+                                ),
                               ),
                               DataCell(
                                 Row(

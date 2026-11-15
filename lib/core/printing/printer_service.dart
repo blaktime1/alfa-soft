@@ -141,6 +141,22 @@ class PrinterService {
     } catch (_) {}
   }
 
+  /// Default Pricing Tier: 'WHOLESALE' (سعر جملة) or 'RETAIL' (سعر تجزئة)
+  String getDefaultPricingTier() {
+    try {
+      final rows = _db.select("SELECT value FROM system_settings WHERE key = 'default_pricing_tier' LIMIT 1");
+      if (rows.isNotEmpty) {
+        final val = rows.first['value'] as String?;
+        if (val != null && val.isNotEmpty) return val.toUpperCase();
+      }
+    } catch (_) {}
+    return 'WHOLESALE'; // Default to Wholesale as preferred by user
+  }
+
+  void setDefaultPricingTier(String tier) {
+    _setSetting('default_pricing_tier', tier.toUpperCase());
+  }
+
   double getExchangeRate(String currency) {
     if (currency == 'SAR') return 1.0;
     try {

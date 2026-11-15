@@ -1065,10 +1065,12 @@ class AccountingRepository {
       SELECT 
         ev.*,
         exp_acc.name_ar as expense_account_name,
-        pay_acc.name_ar as payment_account_name
+        pay_acc.name_ar as payment_account_name,
+        COALESCE(je.status, 'POSTED') as journal_status
       FROM expense_vouchers ev
       JOIN chart_of_accounts exp_acc ON ev.expense_account_id = exp_acc.id
       JOIN chart_of_accounts pay_acc ON ev.payment_account_id = pay_acc.id
+      LEFT JOIN journal_entries je ON ev.journal_entry_id = je.id
       WHERE ${where.join(' AND ')}
       ORDER BY ev.voucher_date DESC, ev.created_at DESC
       LIMIT ?
@@ -1077,5 +1079,17 @@ class AccountingRepository {
 
     final res = _db.select(sql, params);
     return res.map((r) => ExpenseVoucher.fromMap(Map<String, dynamic>.from(r))).toList();
+  }
+
+  void updateExpenseVoucher({
+    required String voucherId,
+    required String description,
+    String? referenceNo,
+  }) {
+    _db.execute('''
+      UPDATE expense_vouchers
+      SET description = ?, reference_no = ?
+      WHERE id = ?
+    ''', [description.trim(), referenceNo?.trim(), voucherId]);
   }
 }

@@ -33,6 +33,11 @@ class StandardPosItemRow {
   int warehouseStock;
   bool isCarton;
   int unitsPerCarton;
+  double taxRatePercent;
+
+  late final TextEditingController qtyController;
+  late final TextEditingController bonusController;
+  late final TextEditingController priceController;
 
   StandardPosItemRow({
     this.productId = '',
@@ -50,10 +55,31 @@ class StandardPosItemRow {
     this.warehouseStock = 0,
     this.isCarton = false,
     this.unitsPerCarton = 1,
-    this.taxRatePercent = 15.0,
-  });
+    this.taxRatePercent = 0.0,
+  }) {
+    qtyController = TextEditingController(text: quantity.toString());
+    bonusController = TextEditingController(text: bonusQuantity.toString());
+    priceController = TextEditingController(text: (unitPriceCents / 100).toStringAsFixed(2));
+  }
 
-  double taxRatePercent;
+  void updateControllers() {
+    if (qtyController.text != quantity.toString()) {
+      qtyController.text = quantity.toString();
+    }
+    if (bonusController.text != bonusQuantity.toString()) {
+      bonusController.text = bonusQuantity.toString();
+    }
+    final pStr = (unitPriceCents / 100).toStringAsFixed(2);
+    if (priceController.text != pStr) {
+      priceController.text = pStr;
+    }
+  }
+
+  void dispose() {
+    qtyController.dispose();
+    bonusController.dispose();
+    priceController.dispose();
+  }
 
   int get lineTotalCents => (quantity * unitPriceCents) - discountCents;
   int get lineTaxCents => taxRatePercent <= 0
@@ -78,11 +104,11 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
   // Header State
   String? _selectedBranchId;
   String? _selectedWarehouseId;
-  String _priceLevel = 'RETAIL'; // 'RETAIL' or 'WHOLESALE'
+  String _priceLevel = 'WHOLESALE'; // Default to WHOLESALE (بيع جملة) as requested
   String _currencyCode = 'YER';
   double _exchangeRate = 1.0;
-  bool _isTaxEnabled = true;
-  double _taxRatePercent = 15.0;
+  bool _isTaxEnabled = false;
+  double _taxRatePercent = 0.0;
   String _paymentMethod = 'CASH'; // 'CASH', 'CREDIT', 'BANK'
 
   String? _selectedCustomerId;
@@ -152,10 +178,24 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         if (_branches.isNotEmpty) {
           _selectedBranchId = _branches.first.id;
           _warehouses = orgRepo.getWarehouses(_selectedBranchId!);
-          if (_warehouses.isNotEmpty) {
-            _selectedWarehouseId = _warehouses.first.id;
+        }
+
+        // Guarantee at least one valid warehouse exists to prevent NOT NULL constraint crashes
+        if (_warehouses.isEmpty) {
+          final allWh = db.select('SELECT id, branch_id, code, name FROM warehouses WHERE is_active = 1');
+          if (allWh.isNotEmpty) {
+            _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
+          } else {
+            final defaultBranchId = _selectedBranchId ?? (_branches.isNotEmpty ? _branches.first.id : 'br_default');
+            final createdWh = orgRepo.createWarehouse(
+              branchId: defaultBranchId,
+              code: 'WH-01',
+              name: 'المستودع الرئيسي',
+            );
+            _warehouses = [createdWh];
           }
         }
+        _selectedWarehouseId = _warehouses.first.id;
 
         _customers = partnerRepo.getCustomers(companyId);
         if (_customers.isEmpty) {
@@ -185,7 +225,8 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         _currencyCode = ps.getDefaultCurrency();
         _exchangeRate = ps.getExchangeRate(_currencyCode);
         _isTaxEnabled = ps.isTaxEnabled();
-        _taxRatePercent = ps.getTaxRatePercent();
+        _taxRatePercent = _isTaxEnabled ? ps.getTaxRatePercent() : 0.0;
+        _priceLevel = ps.getDefaultPricingTier(); // Defaults to WHOLESALE (سعر جملة)
 
         // Load invoice IDs for navigation
         final invRows = db.select(
@@ -273,6 +314,195 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
     }
   }
 
+  void _showCustomerSearchDialog() {
+    String search = '';
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDState) {
+            final query = search.trim().toLowerCase();
+            final filtered = _customers.where((c) {
+              if (query.isEmpty) return true;
+              return c.name.toLowerCase().contains(query) ||
+                  c.code.toLowerCase().contains(query) ||
+                  (c.phone != null && c.phone!.contains(query));
+            }).toList();
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: Row(
+                children: [
+                  const Icon(Icons.person_search_rounded, color: AppColors.brandPrimary),
+                  const SizedBox(width: 8),
+                  const Text('البحث واختيار عميل', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 600,
+                height: 500,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: 'ابحث باسم العميل، رقم الجوال، أو الكود...',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      onChanged: (val) => setDState(() => search = val),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('لا توجد نتائج مطابقة لبحثك', style: TextStyle(color: Colors.grey)))
+                          : ListView.separated(
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (context, idx) {
+                                final c = filtered[idx];
+                                final isSelected = c.id == _selectedCustomerId;
+                                final isWalkIn = c.code == 'WALK_IN';
+                                final balance = c.currentBalance;
+
+                                return ListTile(
+                                  selected: isSelected,
+                                  selectedTileColor: Colors.blue.withValues(alpha: 0.08),
+                                  leading: CircleAvatar(
+                                    backgroundColor: isWalkIn ? Colors.grey.shade200 : AppColors.brandPrimary.withValues(alpha: 0.1),
+                                    child: Icon(
+                                      isWalkIn ? Icons.storefront_rounded : Icons.person_rounded,
+                                      color: isWalkIn ? Colors.grey.shade700 : AppColors.brandPrimary,
+                                    ),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                      if (isWalkIn) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(color: Colors.blueGrey.shade100, borderRadius: BorderRadius.circular(4)),
+                                          child: const Text('عميل نقدي افتراضي', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  subtitle: Text('كود: ${c.code}${c.phone != null ? ' | جوال: ${c.phone}' : ''}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                  trailing: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        'الرصيد: ${balance.toStringAsFixed(2)} $_currencyCode',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: balance > 0 ? Colors.red.shade700 : (balance < 0 ? Colors.green.shade700 : Colors.grey.shade800),
+                                        ),
+                                      ),
+                                      Text(
+                                        balance > 0 ? 'مديونية عليه' : (balance < 0 ? 'دائن له' : 'خالص'),
+                                        style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedCustomerId = c.id;
+                                    });
+                                    Navigator.pop(ctx);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _showQuickAddCustomerDialog();
+                  },
+                  icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                  label: const Text('إضافة عميل جديد'),
+                ),
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showQuickAddCustomerDialog() {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.person_add_alt_1_rounded, color: AppColors.brandPrimary),
+            SizedBox(width: 8),
+            Text('إضافة عميل جديد سريعاً'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'اسم العميل *', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'رقم الهاتف / الجوال', border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              final db = ref.read(databaseServiceProvider);
+              final compId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
+              final partnerRepo = PartnerRepository(db);
+              final newCode = 'CUST-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+              final newCust = partnerRepo.createCustomer(
+                companyId: compId,
+                code: newCode,
+                name: name,
+                phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
+              );
+              setState(() {
+                _customers = partnerRepo.getCustomers(compId);
+                _selectedCustomerId = newCust.id;
+              });
+              Navigator.pop(ctx);
+              _showSnack('تمت إضافة العميل "$name" بنجاح واختياره');
+            },
+            child: const Text('حفظ واختيار'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // -------------------------------------------------------------
   // ACTIONS: SAVE, EDIT, VOID, SEARCH, PRINT, NAVIGATE
   // -------------------------------------------------------------
@@ -287,10 +517,54 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
     final db = ref.read(databaseServiceProvider);
     final salesRepo = ref.read(salesInvoiceRepositoryProvider);
+    final partnerRepo = PartnerRepository(db);
+    final orgRepo = OrganizationRepository(db);
+
     final compResult = db.select('SELECT id FROM companies LIMIT 1');
     if (compResult.isEmpty) return;
     final companyId = compResult.first['id'] as String;
     final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
+
+    // Strict safety check: Warehouse MUST NOT be null
+    if (_selectedWarehouseId == null || _selectedWarehouseId!.isEmpty) {
+      final anyWh = db.select('SELECT id FROM warehouses WHERE is_active = 1 LIMIT 1');
+      if (anyWh.isNotEmpty) {
+        _selectedWarehouseId = anyWh.first['id'] as String;
+      } else {
+        final defaultBranchId = _selectedBranchId ?? (_branches.isNotEmpty ? _branches.first.id : 'br_default');
+        final createdWh = orgRepo.createWarehouse(
+          branchId: defaultBranchId,
+          code: 'WH-01',
+          name: 'المستودع الرئيسي',
+        );
+        _selectedWarehouseId = createdWh.id;
+      }
+    }
+
+    // Strict safety check: Customer fallback
+    if (_selectedCustomerId == null || _selectedCustomerId!.isEmpty) {
+      if (_customers.isNotEmpty) {
+        _selectedCustomerId = _customers.first.id;
+      } else {
+        final walkIn = partnerRepo.createCustomer(
+          companyId: companyId,
+          code: 'WALK_IN',
+          name: 'عميل نقدي عابر',
+        );
+        _customers = partnerRepo.getCustomers(companyId);
+        _selectedCustomerId = walkIn.id;
+      }
+    }
+
+    // Cash vs Credit validation: Credit sales MUST specify a non-walkin customer
+    if (_paymentMethod == 'CREDIT') {
+      final cust = _customers.firstWhere((c) => c.id == _selectedCustomerId, orElse: () => _customers.first);
+      if (cust.code == 'WALK_IN') {
+        _showSnack('يجب تحديد حساب عميل آجل (وليس عميل نقدي عابر) عند البيع بالآجل لتسجيل المديونية عليه', isError: true);
+        _showCustomerSearchDialog();
+        return;
+      }
+    }
 
     try {
       if (_isEditingExisting && _loadedInvoiceId != null) {
@@ -374,7 +648,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                 id, invoice_id, product_id, quantity, bonus_quantity, unit_id,
                 unit_price, cost_price, discount_amount, tax_rate, tax_amount, line_total,
                 unit_type, units_per_pack, batch_number, expiry_date, unit_name
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 15, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', [
               itemId,
               newInvoiceId,
@@ -385,6 +659,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
               r.unitPriceCents,
               r.costPriceCents,
               r.discountCents,
+              r.taxRatePercent,
               r.lineTaxCents,
               r.lineTotalCents,
               r.isCarton ? 'CARTON' : 'PIECE',
@@ -495,7 +770,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
             'unit_price': r.unitPriceCents,
             'cost_price': r.costPriceCents,
             'discount_amount': r.discountCents,
-            'tax_rate': 15,
+            'tax_rate': r.taxRatePercent,
             'tax_amount': r.lineTaxCents,
             'line_total': r.lineTotalCents,
             'unit_type': r.isCarton ? 'CARTON' : 'PIECE',
@@ -820,6 +1095,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
           warehouseStock: item.currentWarehouseStock,
           isCarton: item.unitType == 'CARTON',
           unitsPerCarton: item.unitsPerPack,
+          taxRatePercent: item.lineTotalCents > 0 ? ((item.taxAmountCents * 100.0) / item.lineTotalCents) : 0.0,
         ));
       }
 
@@ -1334,7 +1610,20 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                       _selectedBranchId = val;
                       final orgRepo = OrganizationRepository(ref.read(databaseServiceProvider));
                       _warehouses = orgRepo.getWarehouses(val);
-                      if (_warehouses.isNotEmpty) _selectedWarehouseId = _warehouses.first.id;
+                      if (_warehouses.isEmpty) {
+                        final allWh = ref.read(databaseServiceProvider).select('SELECT id, branch_id, code, name FROM warehouses WHERE is_active = 1');
+                        if (allWh.isNotEmpty) {
+                          _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
+                        } else {
+                          final createdWh = orgRepo.createWarehouse(
+                            branchId: val,
+                            code: 'WH-01',
+                            name: 'المستودع الرئيسي',
+                          );
+                          _warehouses = [createdWh];
+                        }
+                      }
+                      _selectedWarehouseId = _warehouses.first.id;
                     });
                   }
                 },
@@ -1384,6 +1673,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                           r.unitPriceCents = (_priceLevel == 'WHOLESALE' && prod.minSalePriceCents > 0)
                               ? prod.minSalePriceCents
                               : prod.salePriceCents;
+                          r.updateControllers();
                         } catch (_) {}
                       }
                     });
@@ -1454,26 +1744,77 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                 label: 'طريقة الدفع',
                 value: _paymentMethod,
                 items: const [
-                  DropdownMenuItem(value: 'CASH', child: Text('نقد')),
-                  DropdownMenuItem(value: 'CREDIT', child: Text('آجل')),
+                  DropdownMenuItem(value: 'CASH', child: Text('نقد (كاش)')),
+                  DropdownMenuItem(value: 'CREDIT', child: Text('آجل (على الحساب)')),
                   DropdownMenuItem(value: 'BANK', child: Text('بنك / شبكة')),
                 ],
                 onChanged: (val) {
-                  if (val != null) setState(() => _paymentMethod = val);
+                  if (val != null) {
+                    setState(() {
+                      _paymentMethod = val;
+                      if (_paymentMethod == 'CASH') {
+                        final walkIn = _customers.where((c) => c.code == 'WALK_IN').toList();
+                        if (walkIn.isNotEmpty && (_selectedCustomerId == null || _currentCustomer == null)) {
+                          _selectedCustomerId = walkIn.first.id;
+                        }
+                      }
+                    });
+                  }
                 },
-                width: 120,
+                width: 130,
               ),
               const SizedBox(width: 8),
 
-              // Customer Selection
-              _buildFormDropdown<String>(
-                label: 'اسم العميل',
-                value: _selectedCustomerId,
-                items: _customers.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedCustomerId = val);
-                },
-                width: 200,
+              // Customer Selection Button & Modal Trigger
+              InkWell(
+                onTap: _showCustomerSearchDialog,
+                borderRadius: BorderRadius.circular(4),
+                child: Container(
+                  width: 220,
+                  height: 48,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _paymentMethod == 'CREDIT' && (_currentCustomer?.code == 'WALK_IN' || _selectedCustomerId == null)
+                        ? Colors.red.shade50
+                        : Colors.white,
+                    border: Border.all(
+                      color: _paymentMethod == 'CREDIT' && (_currentCustomer?.code == 'WALK_IN' || _selectedCustomerId == null)
+                          ? Colors.red.shade400
+                          : Colors.grey.shade400,
+                      width: _paymentMethod == 'CREDIT' && (_currentCustomer?.code == 'WALK_IN' || _selectedCustomerId == null) ? 1.5 : 1.0,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              children: [
+                                Text('اسم العميل', style: TextStyle(fontSize: 10, color: Colors.grey.shade700)),
+                                if (_paymentMethod == 'CREDIT')
+                                  const Text(' * (مطلوب)', style: TextStyle(fontSize: 9, color: Colors.red, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            Text(
+                              _currentCustomer?.name ?? 'اختر عميل...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: _paymentMethod == 'CREDIT' && _currentCustomer?.code == 'WALK_IN' ? Colors.red.shade800 : Colors.black87,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.search_rounded, size: 20, color: AppColors.brandPrimary),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
 
@@ -1796,6 +2137,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                                         ? prod.minSalePriceCents
                                         : prod.salePriceCents;
                                   }
+                                  row.updateControllers();
                                 } catch (_) {}
                               });
                             }
@@ -1808,17 +2150,20 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                       SizedBox(
                         width: 70,
                         child: TextFormField(
-                          key: ValueKey('qty_${row.productId}_$index'),
-                          initialValue: row.quantity.toString(),
+                          controller: row.qtyController,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                             border: OutlineInputBorder(),
                           ),
+                          onTap: () {
+                            row.qtyController.selection = TextSelection(baseOffset: 0, extentOffset: row.qtyController.text.length);
+                          },
                           onChanged: (val) {
+                            final parsed = int.tryParse(val) ?? 1;
                             setState(() {
-                              row.quantity = int.tryParse(val) ?? 1;
+                              row.quantity = parsed;
                             });
                           },
                         ),
@@ -1829,17 +2174,20 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                       SizedBox(
                         width: 60,
                         child: TextFormField(
-                          key: ValueKey('bonus_${row.productId}_$index'),
-                          initialValue: row.bonusQuantity.toString(),
+                          controller: row.bonusController,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                             border: OutlineInputBorder(),
                           ),
+                          onTap: () {
+                            row.bonusController.selection = TextSelection(baseOffset: 0, extentOffset: row.bonusController.text.length);
+                          },
                           onChanged: (val) {
+                            final parsed = int.tryParse(val) ?? 0;
                             setState(() {
-                              row.bonusQuantity = int.tryParse(val) ?? 0;
+                              row.bonusQuantity = parsed;
                             });
                           },
                         ),
@@ -1850,14 +2198,16 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                       SizedBox(
                         width: 90,
                         child: TextFormField(
-                          key: ValueKey('price_${row.productId}_$index'),
-                          initialValue: (row.unitPriceCents / 100).toStringAsFixed(2),
+                          controller: row.priceController,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                             border: OutlineInputBorder(),
                           ),
+                          onTap: () {
+                            row.priceController.selection = TextSelection(baseOffset: 0, extentOffset: row.priceController.text.length);
+                          },
                           onChanged: (val) {
                             final parsed = double.tryParse(val) ?? 0;
                             setState(() {
@@ -2009,6 +2359,9 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
             ? prod.minSalePriceCents
             : prod.salePriceCents;
       }
+
+      row.taxRatePercent = (_isTaxEnabled && _taxRatePercent > 0) ? _taxRatePercent : 0.0;
+      row.updateControllers();
 
       if (_autoNewLine && rowIndex == _rows.length - 1) {
         _addNewBlankRow();
@@ -2190,12 +2543,38 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
           _buildTotalCard('الخصم', '${(_discountCents / 100).toStringAsFixed(2)} $_currencyCode'),
           const SizedBox(width: 12),
 
-          // VAT
-          _buildTotalCard(
-            _isTaxEnabled && _taxRatePercent > 0
-                ? 'ضريبة القيمة المضافة (${_taxRatePercent.toStringAsFixed(_taxRatePercent.truncateToDouble() == _taxRatePercent ? 0 : 1)}%)'
-                : 'ضريبة القيمة المضافة (0% معفى)',
-            '${(_taxCents / 100).toStringAsFixed(2)} $_currencyCode',
+          // VAT (Interactive toggle between active rate and 0% tax exempt)
+          InkWell(
+            onTap: () {
+              setState(() {
+                if (_isTaxEnabled) {
+                  _isTaxEnabled = false;
+                  for (final r in _rows) {
+                    r.taxRatePercent = 0.0;
+                  }
+                  _showSnack('تم تعطيل الضريبة (0% معفى من الضريبة)');
+                } else {
+                  final ps = PrinterService(ref.read(databaseServiceProvider));
+                  final defaultRate = ps.getTaxRatePercent();
+                  _isTaxEnabled = true;
+                  _taxRatePercent = defaultRate > 0 ? defaultRate : 15.0;
+                  for (final r in _rows) {
+                    r.taxRatePercent = _taxRatePercent;
+                  }
+                  _showSnack('تم تفعيل الضريبة بنسبة ${_taxRatePercent.toStringAsFixed(_taxRatePercent.truncateToDouble() == _taxRatePercent ? 0 : 1)}%');
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(4),
+            child: Tooltip(
+              message: 'اضغط للتبديل بين تفعيل الضريبة أو الإعفاء منها (0%)',
+              child: _buildTotalCard(
+                _isTaxEnabled && _taxRatePercent > 0
+                    ? 'ضريبة القيمة المضافة (${_taxRatePercent.toStringAsFixed(_taxRatePercent.truncateToDouble() == _taxRatePercent ? 0 : 1)}%) 🔄'
+                    : 'ضريبة القيمة المضافة (0% معفى) 🔄',
+                '${(_taxCents / 100).toStringAsFixed(2)} $_currencyCode',
+              ),
+            ),
           ),
           const SizedBox(width: 12),
 

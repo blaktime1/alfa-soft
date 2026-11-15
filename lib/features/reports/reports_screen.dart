@@ -75,24 +75,24 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           controller: _tabController,
           isScrollable: true,
           tabs: const [
-            Tab(icon: Icon(Icons.receipt_rounded), text: 'إيصالات نقاط البيع (ESC/POS)'),
-            Tab(icon: Icon(Icons.picture_as_pdf_rounded), text: 'الفاتورة الضريبية (A4 PDF)'),
-            Tab(icon: Icon(Icons.table_view_rounded), text: 'تصدير البيانات (Excel/CSV)'),
-            Tab(icon: Icon(Icons.analytics_rounded), text: 'مؤشرات الأداء (Analytics)'),
-            Tab(icon: Icon(Icons.history_edu_rounded), text: 'سجل حركات وعمليات النظام (System Operations Log)'),
             Tab(icon: Icon(Icons.assessment_rounded), text: 'الجرد السنوي الشامل والمركز المالي (Annual Audit)'),
+            Tab(icon: Icon(Icons.history_edu_rounded), text: 'سجل حركات وعمليات النظام (System Operations Log)'),
+            Tab(icon: Icon(Icons.analytics_rounded), text: 'مؤشرات الأداء (Analytics)'),
+            Tab(icon: Icon(Icons.table_view_rounded), text: 'تصدير البيانات (Excel/CSV)'),
+            Tab(icon: Icon(Icons.picture_as_pdf_rounded), text: 'الفاتورة الضريبية (A4 PDF)'),
+            Tab(icon: Icon(Icons.receipt_rounded), text: 'إيصالات نقاط البيع (ESC/POS)'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildThermalReceiptTab(context),
-          _buildPdfInvoiceTab(context),
-          _buildExcelExportTab(context),
-          _buildAnalyticsTab(context),
-          _buildInvoiceAuditReportTab(context),
           _buildAnnualAuditTab(context),
+          _buildInvoiceAuditReportTab(context),
+          _buildAnalyticsTab(context),
+          _buildExcelExportTab(context),
+          _buildPdfInvoiceTab(context),
+          _buildThermalReceiptTab(context),
         ],
       ),
     );
@@ -1462,11 +1462,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     final db = ref.read(databaseServiceProvider);
     final cur = PrinterService.defaultCurrency;
 
-    final compRow = db.select('SELECT id, name_ar, tax_number, phone FROM companies LIMIT 1');
+    final compRow = db.select('SELECT id, trade_name, legal_name, tax_number FROM companies LIMIT 1');
     final companyId = compRow.isNotEmpty ? compRow.first['id'] as String : '';
-    final companyName = compRow.isNotEmpty ? (compRow.first['name_ar'] as String? ?? 'شركة ألفا سوفت') : 'شركة ألفا سوفت';
+    final companyName = compRow.isNotEmpty
+        ? ((compRow.first['trade_name'] ?? compRow.first['legal_name'] ?? 'شركة ألفا سوفت') as String)
+        : 'شركة ألفا سوفت';
     final companyTax = compRow.isNotEmpty ? (compRow.first['tax_number'] as String? ?? '') : '';
-    final companyPhone = compRow.isNotEmpty ? (compRow.first['phone'] as String? ?? '') : '';
+    String companyPhone = '';
+    try {
+      final brRow = db.select('SELECT phone FROM branches WHERE company_id = ? LIMIT 1', [companyId]);
+      if (brRow.isNotEmpty && brRow.first['phone'] != null) {
+        companyPhone = brRow.first['phone'] as String;
+      }
+    } catch (_) {}
 
     final isAllYears = _selectedAuditYear == 'ALL';
 

@@ -63,12 +63,34 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
         _orders = purchaseRepo.getPurchaseOrders(companyId);
         _grnNotes = purchaseRepo.getGoodsReceiptNotes(companyId);
         _suppliers = partnerRepo.getSuppliers(companyId);
+        if (_suppliers.isEmpty) {
+          partnerRepo.createSupplier(
+            companyId: companyId,
+            code: 'CASH_SUPP',
+            name: 'مورد نقدي عام',
+          );
+          _suppliers = partnerRepo.getSuppliers(companyId);
+        }
         _products = catalogRepo.getProducts(companyId: companyId);
 
         final branches = orgRepo.getBranches(companyId);
         _warehouses = [];
         for (final b in branches) {
           _warehouses.addAll(orgRepo.getWarehouses(b.id));
+        }
+        if (_warehouses.isEmpty) {
+          final allWh = db.select('SELECT id, branch_id, code, name FROM warehouses WHERE is_active = 1');
+          if (allWh.isNotEmpty) {
+            _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
+          } else {
+            final defBranch = branches.isNotEmpty ? branches.first.id : 'br_default';
+            final createdWh = orgRepo.createWarehouse(
+              branchId: defBranch,
+              code: 'WH-01',
+              name: 'المستودع الرئيسي',
+            );
+            _warehouses = [createdWh];
+          }
         }
       }
     } catch (_) {
@@ -85,16 +107,21 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
       return;
     }
 
+    final db = ref.read(databaseServiceProvider);
+    final ps = PrinterService(db);
+    final isTaxEnabled = ps.isTaxEnabled();
+    final taxRate = isTaxEnabled ? ps.getTaxRatePercent() : 0.0;
+
     final orderNumber = 'PO-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
     String supplierId = _suppliers.first.id;
     final notesController = TextEditingController();
 
-    final items = <Map<String, dynamic>>[
-      {
-        'productId': _products.first.id,
-        'quantity': 10,
-        'costPrice': _products.first.costPrice,
-      }
+    final items = <_PurchaseItemRow>[
+      _PurchaseItemRow(
+        productId: _products.first.id,
+        quantity: 10,
+        costPrice: _products.first.costPrice,
+      ),
     ];
 
     showDialog(
@@ -105,9 +132,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
           builder: (context, setDState) {
             double subtotal = 0;
             for (final it in items) {
-              subtotal += (it['quantity'] as int) * (it['costPrice'] as double);
+              subtotal += it.total;
             }
-            final vat = subtotal * 0.15;
+            final vat = isTaxEnabled ? (subtotal * (taxRate / 100.0)) : 0.0;
             final grandTotal = subtotal + vat;
 
             return AlertDialog(
@@ -125,11 +152,23 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      DropdownButtonFormField<String>(
-                        initialValue: supplierId,
-                        decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
-                        items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                        onChanged: (v) => setDState(() => supplierId = v!),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: supplierId,
+                              decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
+                              items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
+                              onChanged: (v) => setDState(() => supplierId = v!),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.search_rounded, color: AppColors.brandPrimary),
+                            tooltip: 'بحث المورد',
+                            onPressed: () => _showSupplierSearchModal(context, (sId) => setDState(() => supplierId = sId)),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       Row(
@@ -139,11 +178,11 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                           TextButton.icon(
                             onPressed: () {
                               setDState(() {
-                                items.add({
-                                  'productId': _products.first.id,
-                                  'quantity': 1,
-                                  'costPrice': _products.first.costPrice,
-                                });
+                                items.add(_PurchaseItemRow(
+                                  productId: _products.first.id,
+                                  quantity: 1,
+                                  costPrice: _products.first.costPrice,
+                                ));
                               });
                             },
                             icon: const Icon(Icons.add_circle_outline),
@@ -161,16 +200,16 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                               Expanded(
                                 flex: 3,
                                 child: DropdownButtonFormField<String>(
-                                  initialValue: item['productId'] as String,
+                                  value: item.productId,
                                   isExpanded: true,
                                   decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
                                   items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
                                   onChanged: (val) {
                                     if (val != null) {
                                       setDState(() {
-                                        item['productId'] = val;
+                                        item.productId = val;
                                         final prod = _products.firstWhere((p) => p.id == val);
-                                        item['costPrice'] = prod.costPrice;
+                                        item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
                                       });
                                     }
                                   },
@@ -180,26 +219,37 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                               Expanded(
                                 flex: 1,
                                 child: TextFormField(
-                                  initialValue: item['quantity'].toString(),
+                                  controller: item.qtyCtrl,
                                   keyboardType: TextInputType.number,
                                   decoration: const InputDecoration(labelText: 'الكمية', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) => setDState(() => item['quantity'] = int.tryParse(val) ?? 1),
+                                  onTap: () {
+                                    item.qtyCtrl.selection = TextSelection(baseOffset: 0, extentOffset: item.qtyCtrl.text.length);
+                                  },
+                                  onChanged: (_) => setDState(() {}),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 flex: 2,
                                 child: TextFormField(
-                                  initialValue: (item['costPrice'] as double).toStringAsFixed(2),
+                                  controller: item.costCtrl,
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: InputDecoration(labelText: 'التكلفة (${PrinterService.defaultCurrency})', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) => setDState(() => item['costPrice'] = double.tryParse(val) ?? 0.0),
+                                  onTap: () {
+                                    item.costCtrl.selection = TextSelection(baseOffset: 0, extentOffset: item.costCtrl.text.length);
+                                  },
+                                  onChanged: (_) => setDState(() {}),
                                 ),
                               ),
                               if (items.length > 1)
                                 IconButton(
                                   icon: const Icon(Icons.remove_circle_outline, color: AppColors.danger),
-                                  onPressed: () => setDState(() => items.removeAt(idx)),
+                                  onPressed: () {
+                                    setDState(() {
+                                      final removed = items.removeAt(idx);
+                                      removed.dispose();
+                                    });
+                                  },
                                 ),
                             ],
                           ),
@@ -218,7 +268,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('المجموع: ${subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
-                            Text('الضريبة (15%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text(isTaxEnabled
+                                ? 'الضريبة (${taxRate.toStringAsFixed(taxRate.truncateToDouble() == taxRate ? 0 : 1)}%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'
+                                : 'الضريبة: معفى (0%)'),
                             Text('الإجمالي: ${grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                           ],
                         ),
@@ -228,22 +280,29 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                TextButton(
+                  onPressed: () {
+                    for (final it in items) {
+                      it.dispose();
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('إلغاء'),
+                ),
                 ElevatedButton(
                   onPressed: () {
-                    final db = ref.read(databaseServiceProvider);
                     final repo = PurchaseRepository(db);
                     final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
                     final branchId = db.select('SELECT id FROM branches WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
                     final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
 
                     final poItems = items.map((it) {
-                      final prod = _products.firstWhere((p) => p.id == it['productId']);
+                      final prod = _products.firstWhere((p) => p.id == it.productId);
                       return {
-                        'productId': it['productId'],
+                        'productId': it.productId,
                         'unitId': prod.baseUnitId,
-                        'quantity': it['quantity'],
-                        'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                        'quantity': it.quantity,
+                        'unitCostCents': (it.costPrice * 100).round(),
                       };
                     }).toList();
 
@@ -257,6 +316,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                       items: poItems,
                     );
 
+                    for (final it in items) {
+                      it.dispose();
+                    }
                     Navigator.pop(ctx);
                     _loadData();
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -274,15 +336,20 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
   }
 
   void _showEditOrderDialog(PurchaseOrderEntity po) {
+    final db = ref.read(databaseServiceProvider);
+    final ps = PrinterService(db);
+    final isTaxEnabled = ps.isTaxEnabled();
+    final taxRate = isTaxEnabled ? ps.getTaxRatePercent() : 0.0;
+
     String supplierId = po.supplierId;
     final notesController = TextEditingController(text: po.notes ?? '');
 
     final items = po.items.map((it) {
-      return {
-        'productId': it.productId,
-        'quantity': it.quantity,
-        'costPrice': it.unitCost,
-      };
+      return _PurchaseItemRow(
+        productId: it.productId,
+        quantity: it.quantity,
+        costPrice: it.unitCost,
+      );
     }).toList();
 
     showDialog(
@@ -293,9 +360,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
           builder: (context, setDState) {
             double subtotal = 0;
             for (final it in items) {
-              subtotal += (it['quantity'] as int) * (it['costPrice'] as double);
+              subtotal += it.total;
             }
-            final vat = subtotal * 0.15;
+            final vat = isTaxEnabled ? (subtotal * (taxRate / 100.0)) : 0.0;
             final grandTotal = subtotal + vat;
 
             return AlertDialog(
@@ -313,11 +380,23 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      DropdownButtonFormField<String>(
-                        initialValue: supplierId,
-                        decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
-                        items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                        onChanged: (v) => setDState(() => supplierId = v!),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: supplierId,
+                              decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
+                              items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
+                              onChanged: (v) => setDState(() => supplierId = v!),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.search_rounded, color: AppColors.brandPrimary),
+                            tooltip: 'بحث المورد',
+                            onPressed: () => _showSupplierSearchModal(context, (sId) => setDState(() => supplierId = sId)),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       Row(
@@ -327,11 +406,11 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                           TextButton.icon(
                             onPressed: () {
                               setDState(() {
-                                items.add({
-                                  'productId': _products.first.id,
-                                  'quantity': 1,
-                                  'costPrice': _products.first.costPrice,
-                                });
+                                items.add(_PurchaseItemRow(
+                                  productId: _products.first.id,
+                                  quantity: 1,
+                                  costPrice: _products.first.costPrice,
+                                ));
                               });
                             },
                             icon: const Icon(Icons.add_circle_outline),
@@ -349,16 +428,16 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                               Expanded(
                                 flex: 3,
                                 child: DropdownButtonFormField<String>(
-                                  initialValue: item['productId'] as String,
+                                  value: item.productId,
                                   isExpanded: true,
                                   decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
                                   items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
                                   onChanged: (val) {
                                     if (val != null) {
                                       setDState(() {
-                                        item['productId'] = val;
+                                        item.productId = val;
                                         final prod = _products.firstWhere((p) => p.id == val);
-                                        item['costPrice'] = prod.costPrice;
+                                        item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
                                       });
                                     }
                                   },
@@ -368,26 +447,37 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                               Expanded(
                                 flex: 1,
                                 child: TextFormField(
-                                  initialValue: item['quantity'].toString(),
+                                  controller: item.qtyCtrl,
                                   keyboardType: TextInputType.number,
                                   decoration: const InputDecoration(labelText: 'الكمية', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) => setDState(() => item['quantity'] = int.tryParse(val) ?? 1),
+                                  onTap: () {
+                                    item.qtyCtrl.selection = TextSelection(baseOffset: 0, extentOffset: item.qtyCtrl.text.length);
+                                  },
+                                  onChanged: (_) => setDState(() {}),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 flex: 2,
                                 child: TextFormField(
-                                  initialValue: (item['costPrice'] as double).toStringAsFixed(2),
+                                  controller: item.costCtrl,
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: InputDecoration(labelText: 'التكلفة (${PrinterService.defaultCurrency})', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) => setDState(() => item['costPrice'] = double.tryParse(val) ?? 0.0),
+                                  onTap: () {
+                                    item.costCtrl.selection = TextSelection(baseOffset: 0, extentOffset: item.costCtrl.text.length);
+                                  },
+                                  onChanged: (_) => setDState(() {}),
                                 ),
                               ),
                               if (items.length > 1)
                                 IconButton(
                                   icon: const Icon(Icons.remove_circle_outline, color: AppColors.danger),
-                                  onPressed: () => setDState(() => items.removeAt(idx)),
+                                  onPressed: () {
+                                    setDState(() {
+                                      final removed = items.removeAt(idx);
+                                      removed.dispose();
+                                    });
+                                  },
                                 ),
                             ],
                           ),
@@ -406,7 +496,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('المجموع: ${subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
-                            Text('الضريبة (15%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text(isTaxEnabled
+                                ? 'الضريبة (${taxRate.toStringAsFixed(taxRate.truncateToDouble() == taxRate ? 0 : 1)}%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'
+                                : 'الضريبة: معفى (0%)'),
                             Text('الإجمالي: ${grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                           ],
                         ),
@@ -416,20 +508,27 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                TextButton(
+                  onPressed: () {
+                    for (final it in items) {
+                      it.dispose();
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('إلغاء'),
+                ),
                 ElevatedButton(
                   onPressed: () {
-                    final db = ref.read(databaseServiceProvider);
                     final repo = PurchaseRepository(db);
                     final userId = db.select('SELECT id FROM users LIMIT 1').first['id'] as String;
 
                     final poItems = items.map((it) {
-                      final prod = _products.firstWhere((p) => p.id == it['productId']);
+                      final prod = _products.firstWhere((p) => p.id == it.productId);
                       return {
-                        'productId': it['productId'],
+                        'productId': it.productId,
                         'unitId': prod.baseUnitId,
-                        'quantity': it['quantity'],
-                        'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                        'quantity': it.quantity,
+                        'unitCostCents': (it.costPrice * 100).round(),
                       };
                     }).toList();
 
@@ -441,6 +540,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                       userId: userId,
                     );
 
+                    for (final it in items) {
+                      it.dispose();
+                    }
                     Navigator.pop(ctx);
                     _loadData();
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -465,17 +567,22 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
       return;
     }
 
+    final db = ref.read(databaseServiceProvider);
+    final ps = PrinterService(db);
+    final isTaxEnabled = ps.isTaxEnabled();
+    final taxRate = isTaxEnabled ? ps.getTaxRatePercent() : 0.0;
+
     final invoiceNumber = 'PINV-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
     String supplierId = _suppliers.first.id;
     String warehouseId = _warehouses.first.id;
     String paymentMethod = 'CASH';
 
-    final items = <Map<String, dynamic>>[
-      {
-        'productId': _products.first.id,
-        'quantity': 10,
-        'costPrice': _products.first.costPrice,
-      }
+    final items = <_PurchaseItemRow>[
+      _PurchaseItemRow(
+        productId: _products.first.id,
+        quantity: 10,
+        costPrice: _products.first.costPrice,
+      ),
     ];
 
     showDialog(
@@ -486,10 +593,13 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
           builder: (context, setDState) {
             double subtotal = 0;
             for (final it in items) {
-              subtotal += (it['quantity'] as int) * (it['costPrice'] as double);
+              subtotal += it.total;
             }
-            final vat = subtotal * 0.15;
+            final vat = isTaxEnabled ? (subtotal * (taxRate / 100.0)) : 0.0;
             final grandTotal = subtotal + vat;
+
+            final currentSupp = _suppliers.firstWhere((s) => s.id == supplierId, orElse: () => _suppliers.first);
+            final isCreditInvalid = paymentMethod == 'CREDIT' && currentSupp.code == 'CASH_SUPP';
 
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -509,33 +619,94 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                     children: [
                       Row(
                         children: [
+                          // Supplier Field with Search Modal
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              initialValue: supplierId,
-                              decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
-                              items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                              onChanged: (v) => setDState(() => supplierId = v!),
+                            flex: 4,
+                            child: InkWell(
+                              onTap: () {
+                                _showSupplierSearchModal(context, (sId) {
+                                  setDState(() => supplierId = sId);
+                                });
+                              },
+                              child: Container(
+                                height: 56,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isCreditInvalid ? Colors.red.shade50 : Colors.white,
+                                  border: Border.all(
+                                    color: isCreditInvalid ? Colors.red.shade400 : Colors.grey.shade400,
+                                    width: isCreditInvalid ? 1.5 : 1.0,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                paymentMethod == 'CASH' ? 'المورد (اختياري للنقد)' : 'المورد * (مطلوب للآجل)',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: paymentMethod == 'CREDIT' ? Colors.red.shade700 : Colors.grey.shade700,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          Text(
+                                            currentSupp.name,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                              color: isCreditInvalid ? Colors.red.shade800 : Colors.black87,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(Icons.search_rounded, size: 20, color: AppColors.brandPrimary),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
+
+                          // Warehouse
                           Expanded(
+                            flex: 3,
                             child: DropdownButtonFormField<String>(
-                              initialValue: warehouseId,
+                              value: warehouseId,
                               decoration: const InputDecoration(labelText: 'مستودع التوريد *', border: OutlineInputBorder()),
                               items: _warehouses.map((w) => DropdownMenuItem(value: w.id, child: Text(w.name))).toList(),
                               onChanged: (v) => setDState(() => warehouseId = v!),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
+
+                          // Payment Method
                           Expanded(
+                            flex: 3,
                             child: DropdownButtonFormField<String>(
-                              initialValue: paymentMethod,
+                              value: paymentMethod,
                               decoration: const InputDecoration(labelText: 'طريقة الدفع *', border: OutlineInputBorder()),
                               items: const [
-                                DropdownMenuItem(value: 'CASH', child: Text('نقد (من الخزينة)')),
-                                DropdownMenuItem(value: 'CREDIT', child: Text('آجل (على حساب المورد)')),
+                                DropdownMenuItem(value: 'CASH', child: Text('نقد (كاش)')),
+                                DropdownMenuItem(value: 'CREDIT', child: Text('آجل (على الحساب)')),
                               ],
-                              onChanged: (v) => setDState(() => paymentMethod = v!),
+                              onChanged: (v) => setDState(() {
+                                paymentMethod = v!;
+                                if (paymentMethod == 'CASH') {
+                                  final cashSupp = _suppliers.where((s) => s.code == 'CASH_SUPP').toList();
+                                  if (cashSupp.isNotEmpty) supplierId = cashSupp.first.id;
+                                }
+                              }),
                             ),
                           ),
                         ],
@@ -548,11 +719,11 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                           TextButton.icon(
                             onPressed: () {
                               setDState(() {
-                                items.add({
-                                  'productId': _products.first.id,
-                                  'quantity': 1,
-                                  'costPrice': _products.first.costPrice,
-                                });
+                                items.add(_PurchaseItemRow(
+                                  productId: _products.first.id,
+                                  quantity: 1,
+                                  costPrice: _products.first.costPrice,
+                                ));
                               });
                             },
                             icon: const Icon(Icons.add_circle_outline),
@@ -571,16 +742,16 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                               Expanded(
                                 flex: 3,
                                 child: DropdownButtonFormField<String>(
-                                  initialValue: item['productId'] as String,
+                                  value: item.productId,
                                   isExpanded: true,
                                   decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
                                   items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
                                   onChanged: (val) {
                                     if (val != null) {
                                       setDState(() {
-                                        item['productId'] = val;
+                                        item.productId = val;
                                         final prod = _products.firstWhere((p) => p.id == val);
-                                        item['costPrice'] = prod.costPrice;
+                                        item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
                                       });
                                     }
                                   },
@@ -590,20 +761,26 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                               Expanded(
                                 flex: 1,
                                 child: TextFormField(
-                                  initialValue: item['quantity'].toString(),
+                                  controller: item.qtyCtrl,
                                   keyboardType: TextInputType.number,
                                   decoration: const InputDecoration(labelText: 'الكمية', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) => setDState(() => item['quantity'] = int.tryParse(val) ?? 1),
+                                  onTap: () {
+                                    item.qtyCtrl.selection = TextSelection(baseOffset: 0, extentOffset: item.qtyCtrl.text.length);
+                                  },
+                                  onChanged: (_) => setDState(() {}),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 flex: 2,
                                 child: TextFormField(
-                                  initialValue: (item['costPrice'] as double).toStringAsFixed(2),
+                                  controller: item.costCtrl,
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: InputDecoration(labelText: 'سعر الشراء (${PrinterService.defaultCurrency})', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) => setDState(() => item['costPrice'] = double.tryParse(val) ?? 0.0),
+                                  onTap: () {
+                                    item.costCtrl.selection = TextSelection(baseOffset: 0, extentOffset: item.costCtrl.text.length);
+                                  },
+                                  onChanged: (_) => setDState(() {}),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -613,14 +790,19 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
                                 child: Text(
-                                  '${((item['quantity'] as int) * (item['costPrice'] as double)).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                                  '${item.total.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                                 ),
                               ),
                               if (items.length > 1)
                                 IconButton(
                                   icon: const Icon(Icons.remove_circle_outline, color: AppColors.danger),
-                                  onPressed: () => setDState(() => items.removeAt(idx)),
+                                  onPressed: () {
+                                    setDState(() {
+                                      final removed = items.removeAt(idx);
+                                      removed.dispose();
+                                    });
+                                  },
                                 ),
                             ],
                           ),
@@ -635,7 +817,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('المجموع قبل الضريبة: ${subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
-                            Text('ضريبة القيمة المضافة (15%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text(isTaxEnabled
+                                ? 'ضريبة القيمة المضافة (${taxRate.toStringAsFixed(taxRate.truncateToDouble() == taxRate ? 0 : 1)}%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'
+                                : 'ضريبة القيمة المضافة: معفى (0%)'),
                             Text('الإجمالي النهائي: ${grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.success)),
                           ],
                         ),
@@ -645,14 +829,29 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                TextButton(
+                  onPressed: () {
+                    for (final it in items) {
+                      it.dispose();
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('إلغاء'),
+                ),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.check_circle_outline),
                   label: const Text('حفظ الفاتورة وتوريد المخزون فوراً'),
                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: Colors.white),
                   onPressed: () {
-                    final db = ref.read(databaseServiceProvider);
-                    final purchaseRepo = PurchaseRepository(db);
+                    if (paymentMethod == 'CREDIT' && currentSupp.code == 'CASH_SUPP') {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('يجب تحديد مورد آجل حقيقي (وليس مورد نقدي عام) عند الشراء بالآجل')),
+                      );
+                      _showSupplierSearchModal(context, (sId) => setDState(() => supplierId = sId));
+                      return;
+                    }
+
+                    final repo = PurchaseRepository(db);
                     final accountingRepo = ref.read(accountingRepositoryProvider);
                     final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
                     final branchId = db.select('SELECT id FROM branches WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
@@ -660,16 +859,16 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
 
                     try {
                       final poItems = items.map((it) {
-                        final prod = _products.firstWhere((p) => p.id == it['productId']);
+                        final prod = _products.firstWhere((p) => p.id == it.productId);
                         return {
-                          'productId': it['productId'],
+                          'productId': it.productId,
                           'unitId': prod.baseUnitId,
-                          'quantity': it['quantity'],
-                          'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                          'quantity': it.quantity,
+                          'unitCostCents': (it.costPrice * 100).round(),
                         };
                       }).toList();
 
-                      final po = purchaseRepo.createPurchaseOrder(
+                      final po = repo.createPurchaseOrder(
                         companyId: companyId,
                         branchId: branchId,
                         supplierId: supplierId,
@@ -680,13 +879,13 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
 
                       final grnItems = items.map((it) {
                         return {
-                          'productId': it['productId'],
-                          'quantity': it['quantity'],
-                          'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                          'productId': it.productId,
+                          'quantity': it.quantity,
+                          'unitCostCents': (it.costPrice * 100).round(),
                         };
                       }).toList();
 
-                      purchaseRepo.receiveGoods(
+                      repo.receiveGoods(
                         companyId: companyId,
                         branchId: branchId,
                         warehouseId: warehouseId,
@@ -719,6 +918,9 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                         supplierName: supplierName,
                       );
 
+                      for (final it in items) {
+                        it.dispose();
+                      }
                       Navigator.pop(ctx);
                       _loadData();
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1238,5 +1440,132 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
               },
             ),
     );
+  }
+
+  void _showSupplierSearchModal(BuildContext context, ValueChanged<String> onSelected) {
+    String query = '';
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) {
+          final q = query.trim().toLowerCase();
+          final filtered = _suppliers.where((s) {
+            if (q.isEmpty) return true;
+            return s.name.toLowerCase().contains(q) ||
+                s.code.toLowerCase().contains(q) ||
+                (s.phone != null && s.phone!.contains(q));
+          }).toList();
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            title: Row(
+              children: [
+                const Icon(Icons.person_search_rounded, color: AppColors.brandPrimary),
+                const SizedBox(width: 8),
+                const Text('البحث واختيار المورد', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Spacer(),
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+              ],
+            ),
+            content: SizedBox(
+              width: 550,
+              height: 450,
+              child: Column(
+                children: [
+                  TextField(
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: 'ابحث باسم المورد، الهاتف، أو الكود...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                    ),
+                    onChanged: (val) => setDState(() => query = val),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(child: Text('لا توجد نتائج مطابقة', style: TextStyle(color: Colors.grey)))
+                        : ListView.separated(
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, idx) {
+                              final s = filtered[idx];
+                              final bal = s.currentBalance;
+                              final isCash = s.code == 'CASH_SUPP';
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: isCash ? Colors.grey.shade200 : AppColors.brandPrimary.withValues(alpha: 0.1),
+                                  child: Icon(isCash ? Icons.storefront_rounded : Icons.business_rounded, color: isCash ? Colors.grey.shade700 : AppColors.brandPrimary),
+                                ),
+                                title: Row(
+                                  children: [
+                                    Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    if (isCash) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(color: Colors.blueGrey.shade100, borderRadius: BorderRadius.circular(4)),
+                                        child: const Text('مورد نقدي عام', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                subtitle: Text('كود: ${s.code}${s.phone != null ? ' | هاتف: ${s.phone}' : ''}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'الرصيد: ${bal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        color: bal > 0 ? Colors.red.shade700 : Colors.green.shade700,
+                                      ),
+                                    ),
+                                    Text(bal > 0 ? 'مستحق له' : 'خالص', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                                  ],
+                                ),
+                                onTap: () {
+                                  onSelected(s.id);
+                                  Navigator.pop(ctx);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PurchaseItemRow {
+  String productId;
+  final TextEditingController qtyCtrl;
+  final TextEditingController costCtrl;
+
+  _PurchaseItemRow({
+    required this.productId,
+    int quantity = 1,
+    double costPrice = 0.0,
+  })  : qtyCtrl = TextEditingController(text: quantity.toString()),
+        costCtrl = TextEditingController(text: costPrice.toStringAsFixed(2));
+
+  int get quantity => int.tryParse(qtyCtrl.text.trim()) ?? 1;
+  double get costPrice => double.tryParse(costCtrl.text.trim()) ?? 0.0;
+  double get total => quantity * costPrice;
+
+  void dispose() {
+    qtyCtrl.dispose();
+    costCtrl.dispose();
   }
 }

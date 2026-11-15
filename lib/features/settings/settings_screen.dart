@@ -48,6 +48,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   bool _showTaxBreakdown = true;
   String _invoiceLanguage = 'AR';
   String _defaultCurrency = 'SAR';
+  String _defaultPricingTier = 'WHOLESALE';
   double _rateUSD = 3.75;
   double _rateYER = 0.007;
   final _rateUsdController = TextEditingController(text: '3.75');
@@ -135,6 +136,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         // Load Invoice Language & Multi-Currency
         _invoiceLanguage = ps.getInvoiceLanguage();
         _defaultCurrency = ps.getDefaultCurrency();
+        _defaultPricingTier = ps.getDefaultPricingTier();
         _rateUSD = ps.getExchangeRate('USD');
         _rateYER = ps.getExchangeRate('YER');
         _rateUsdController.text = _rateUSD.toString();
@@ -1309,15 +1311,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                           ps.setExchangeRate('USD', usdRate);
                           ps.setExchangeRate('YER', yerRate);
                           ps.setDefaultCurrency(_defaultCurrency);
+                          ps.setDefaultPricingTier(_defaultPricingTier);
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('تم التحقق من المشرف وحفظ أسعار صرف العملات بنجاح'),
+                                content: Text('تم التحقق من المشرف وحفظ أسعار صرف العملات والتسعيرة بنجاح'),
                                 backgroundColor: AppColors.success,
                               ),
                             );
                           }
                         },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _defaultPricingTier,
+                          decoration: const InputDecoration(
+                            labelText: 'التسعيرة الافتراضية للكاشير (Pricing Tier)',
+                            prefixIcon: Icon(Icons.sell_outlined),
+                            helperText: 'اختر التسعيرة الأكثر استخداماً عند فتح الفاتورة الجديدة (جملة أو تجزئة)',
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'WHOLESALE', child: Text('سعر جملة (Wholesale) — معتمد لمبيعات الجملة')),
+                            DropdownMenuItem(value: 'RETAIL', child: Text('سعر تجزئة (Retail) — للمحلات والتجزئة العادية')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) setState(() => _defaultPricingTier = v);
+                          },
+                        ),
                       ),
                     ],
                   ),
