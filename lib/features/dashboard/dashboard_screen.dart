@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/theme/app_colors.dart';
 
@@ -49,12 +51,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
       // 4. Recent Audit Logs
       final auditResult = db.select('''
-        SELECT al.action, al.entity_name, al.timestamp, al.user_id, al.new_state,
+        SELECT al.id, al.action, al.entity_name, al.entity_id, al.timestamp, al.user_id, al.new_state,
                COALESCE(u.full_name, u.username, 'مستخدم النظام') as user_name
         FROM audit_logs al
         LEFT JOIN users u ON al.user_id = u.id
         ORDER BY al.timestamp DESC 
-        LIMIT 6
+        LIMIT 8
       ''');
       _recentAuditLogs = auditResult.map((r) => Map<String, dynamic>.from(r)).toList();
     } catch (_) {
@@ -285,53 +287,86 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             ..._recentAuditLogs.map((log) {
                               final action = log['action'] as String? ?? '';
                               final entity = log['entity_name'] as String? ?? '';
+                              final entityId = log['entity_id'] as String? ?? '';
                               final userName = log['user_name'] as String? ?? 'مستخدم';
                               final timestamp = log['timestamp'] as String? ?? '';
                               final newState = log['new_state'] as String? ?? '';
+                              final cleanDesc = _cleanArabicAuditState(newState);
+                              final refLabel = _formatCleanArabicReference(entity, entityId);
 
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: AppColors.brandAccent,
-                                        shape: BoxShape.circle,
+                              return InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () => _showAuditDetailsDialog(context, log),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        margin: const EdgeInsets.only(top: 5),
+                                        width: 8,
+                                        height: 8,
+                                        decoration: const BoxDecoration(
+                                          color: AppColors.brandAccent,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '${_getActionArabicTitle(action)} (${_getEntityArabicTitle(entity)})',
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w600, fontSize: 13),
-                                          ),
-                                          if (newState.isNotEmpty)
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 4,
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              children: [
+                                                Text(
+                                                  _getActionArabicTitle(action),
+                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                                ),
+                                                if (refLabel.isNotEmpty)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.brandPrimary.withValues(alpha: 0.1),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      refLabel,
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: AppColors.brandPrimary,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 2),
                                             Text(
-                                              newState.replaceAll('Invoice: ', 'فاتورة: ').replaceAll('Total: ', 'الإجمالي: '),
+                                              cleanDesc,
                                               style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: theme.colorScheme.onSurface
-                                                      .withValues(alpha: 0.75)),
+                                                fontSize: 12,
+                                                color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                                              ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
-                                          Text(
-                                            '$timestamp • المستخدم: $userName',
-                                            style: TextStyle(
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'بواسطة: $userName • ${_formatTimestamp(timestamp)}',
+                                              style: TextStyle(
                                                 fontSize: 10,
-                                                color: theme.colorScheme.onSurface
-                                                    .withValues(alpha: 0.5)),
-                                          ),
-                                        ],
+                                                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      const Icon(Icons.chevron_left_rounded, size: 16, color: AppColors.lightTextSecondary),
+                                    ],
+                                  ),
                                 ),
                               );
                             }),
@@ -355,11 +390,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (upper == 'VOID_SALES_INVOICE' || upper == 'VOID_SALE') return 'إلغاء فاتورة مبيعات';
     if (upper == 'POST_PURCHASE') return 'تسجيل فاتورة مشتريات';
     if (upper == 'VOID_PURCHASE') return 'إلغاء فاتورة مشتريات';
-    if (upper == 'PURCHASE_GRN') return 'استلام بضاعة (GRN)';
+    if (upper == 'PURCHASE_GRN' || upper == 'RECEIVE_GOODS') return 'استلام وتوريد بضاعة للمخزن';
+    if (upper == 'CREATE_PURCHASE_ORDER') return 'إنشاء أمر شراء';
     if (upper == 'POST_JOURNAL_ENTRY') return 'ترحيل قيد محاسبي';
     if (upper == 'REVERSE_JOURNAL_ENTRY') return 'عكس قيد محاسبي';
     if (upper == 'EXPENSE_VOUCHER' || upper == 'POST_EXPENSE' || upper == 'CREATE_EXPENSE') return 'سند صرف مصروفات';
     if (upper == 'SALARY_ADVANCE' || upper == 'POST_ADVANCE' || upper == 'CREATE_ADVANCE') return 'صرف سلفة موظف';
+    if (upper == 'RECEIPT_VOUCHER' || upper == 'POST_RECEIPT') return 'سند قبض / إيداع إيراد';
     if (upper == 'PAYROLL' || upper == 'GENERATE_PAYROLL') return 'توليد مسير رواتب';
     if (upper == 'APPROVE_PAYROLL') return 'اعتماد مسير رواتب';
     if (upper == 'POST_PAYROLL') return 'ترحيل مسير رواتب';
@@ -369,6 +406,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (upper == 'CREATE_USER') return 'إضافة مستخدم جديد';
     if (upper == 'UPDATE_USER') return 'تعديل مستخدم';
     if (upper == 'BACKUP_DATABASE') return 'نسخ احتياطي للبيانات';
+    if (upper == 'OPEN_POS_SHIFT') return 'فتح وردية كاشير';
+    if (upper == 'CLOSE_POS_SHIFT') return 'إغلاق وردية كاشير';
     if (upper == 'LAN_SYNC_PUSH') return 'مزامنة شبكة محلية (إرسال)';
     if (upper == 'LAN_SYNC_PULL') return 'مزامنة شبكة محلية (استقبال)';
     return action;
@@ -378,18 +417,183 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final upper = entity.toUpperCase();
     if (upper == 'SALES_INVOICE' || upper == 'INVOICE') return 'فاتورة مبيعات';
     if (upper == 'PURCHASE_INVOICE') return 'فاتورة مشتريات';
-    if (upper == 'PURCHASE_GRN') return 'استلام بضاعة (GRN)';
+    if (upper == 'PURCHASE_ORDER') return 'أمر شراء';
+    if (upper == 'PURCHASE_GRN' || upper == 'GRN') return 'إذن توريد مخزني';
     if (upper == 'JOURNAL_ENTRY') return 'قيد محاسبي';
     if (upper == 'EXPENSE_VOUCHER') return 'سند صرف';
     if (upper == 'SALARY_ADVANCE') return 'سلفة موظف';
+    if (upper == 'RECEIPT_VOUCHER') return 'سند قبض / إيداع';
     if (upper == 'PAYROLL_RUN') return 'مسير رواتب';
     if (upper == 'PRODUCT') return 'منتج / صنف';
     if (upper == 'USER') return 'مستخدم';
     if (upper == 'CUSTOMER') return 'عميل';
     if (upper == 'SUPPLIER') return 'مورد';
     if (upper == 'EMPLOYEE') return 'موظف';
+    if (upper == 'SHIFT') return 'وردية كاشير';
     if (upper == 'SYSTEM_SETTINGS' || upper == 'SETTINGS') return 'إعدادات النظام';
     return entity;
+  }
+
+  void _showAuditDetailsDialog(BuildContext context, Map<String, dynamic> log) {
+    final action = log['action'] as String? ?? '';
+    final entity = log['entity_name'] as String? ?? '';
+    final entityId = log['entity_id'] as String? ?? '';
+    final userName = log['user_name'] as String? ?? 'مستخدم';
+    final timestamp = log['timestamp'] as String? ?? '';
+    final newState = log['new_state'] as String? ?? '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.history_edu_rounded, color: AppColors.brandPrimary),
+            SizedBox(width: 8),
+            Text('تفاصيل حركة التدقيق المسجلة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildAuditDetailRow('نوع الحركة / العملية:', _getActionArabicTitle(action)),
+              _buildAuditDetailRow('التصنيف:', _getEntityArabicTitle(entity)),
+              if (entityId.isNotEmpty)
+                _buildAuditDetailRow('الرقم المرجعي المختصر:', _formatCleanArabicReference(entity, entityId)),
+              _buildAuditDetailRow('المستخدم المنفذ:', userName),
+              _buildAuditDetailRow('وقت العملية:', _formatTimestamp(timestamp)),
+              const Divider(height: 24),
+              const Text('بيان وتفاصيل العملية:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.lightBgSubtle,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.lightBorderSubtle),
+                ),
+                child: Text(
+                  _cleanArabicAuditState(newState),
+                  style: const TextStyle(fontSize: 13, height: 1.4),
+                ),
+              ),
+              if (entityId.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('المعرف التقني للنظام (معلومات متقدمة)', style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: SelectableText('معرف السجل: $entityId', style: const TextStyle(fontSize: 11, fontFamily: 'monospace'))),
+                        IconButton(
+                          icon: const Icon(Icons.copy_rounded, size: 14),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: entityId));
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نسخ المعرف التقني')));
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAuditDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 140, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.lightTextSecondary))),
+          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+        ],
+      ),
+    );
+  }
+
+  String _formatTimestamp(String ts) {
+    if (ts.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(ts);
+      return DateFormat('yyyy/MM/dd • hh:mm a').format(dt);
+    } catch (_) {
+      return ts;
+    }
+  }
+
+  String _formatCleanArabicReference(String entityName, String entityId) {
+    if (entityId.isEmpty) return '';
+    if (entityId.startsWith('INV-')) {
+      return 'فاتورة مبيعات #${entityId.replaceFirst('INV-', '')}';
+    }
+    if (entityId.startsWith('PINV-')) {
+      return 'فاتورة مشتريات #${entityId.replaceFirst('PINV-', '')}';
+    }
+    if (entityId.startsWith('PO-')) {
+      return 'أمر شراء #${entityId.replaceFirst('PO-', '')}';
+    }
+    if (entityId.startsWith('GRN-')) {
+      return 'إذن توريد #${entityId.replaceFirst('GRN-', '')}';
+    }
+    if (entityId.startsWith('ADV-')) {
+      return 'سلفة موظف #${entityId.replaceFirst('ADV-', '')}';
+    }
+    if (entityId.startsWith('EXP-')) {
+      return 'سند صرف #${entityId.replaceFirst('EXP-', '')}';
+    }
+    if (entityId.startsWith('RCT-')) {
+      return 'سند إيداع #${entityId.replaceFirst('RCT-', '')}';
+    }
+    if (entityId.startsWith('JE-')) {
+      return 'قيد يومية #${entityId.replaceFirst('JE-', '')}';
+    }
+    if (entityId.contains('-') && entityId.length >= 24) {
+      return 'حركة #${entityId.substring(entityId.length - 6)}';
+    }
+    return '#$entityId';
+  }
+
+  String _cleanArabicAuditState(String raw) {
+    if (raw.trim().isEmpty) return 'تم تنفيذ العملية واعتمادها بنجاح';
+    String res = raw;
+    res = res.replaceAll('POST_SALE:', 'اعتماد فاتورة مبيعات:');
+    res = res.replaceAll('POST_SALE', 'اعتماد مبيعات');
+    res = res.replaceAll('POST_PURCHASE:', 'فاتورة مشتريات:');
+    res = res.replaceAll('POST_PURCHASE', 'مشتريات');
+    res = res.replaceAll('RECEIVE_GOODS', 'استلام وتوريد مخزني');
+    res = res.replaceAll('Invoice: ', 'فاتورة: #');
+    res = res.replaceAll('PO: ', 'أمر شراء: #');
+    res = res.replaceAll('GRN: ', 'إذن توريد: #');
+    res = res.replaceAll('Total: ', 'الإجمالي: ');
+    res = res.replaceAll('Cost: ', 'التكلفة: ');
+    res = res.replaceAll('Lines: ', 'عدد الأصناف: ');
+    res = res.replaceAll('isCash: true', 'نقداً');
+    res = res.replaceAll('isCash: false', 'آجل');
+    res = res.replaceAll('Starting Cash: ', 'رصيد فتح الصندوق: ');
+    res = res.replaceAll('SAR', 'ريال');
+    res = res.replaceAll('YER', 'ريال يمني');
+    res = res.replaceAll('USD', 'دولار');
+    res = res.replaceAll('Customer: ', 'العميل: ');
+    res = res.replaceAll('Supplier: ', 'المورد: ');
+    res = res.replaceAll('Reason: ', 'السبب: ');
+    res = res.replaceAll('DESKTOP_POS', 'نقطة بيع');
+    res = res.replaceAll('DESKTOP_ERP', 'المنظومة');
+    return res;
   }
 }
 

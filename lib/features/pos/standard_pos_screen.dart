@@ -35,15 +35,15 @@ class StandardPosItemRow {
   int unitsPerCarton;
 
   StandardPosItemRow({
-    required this.productId,
-    required this.barcode,
-    required this.name,
+    this.productId = '',
+    this.barcode = '',
+    this.name = '',
     this.unitId = 'unit_pcs',
     this.unitName = 'حبة',
     this.quantity = 1,
     this.bonusQuantity = 0,
-    required this.unitPriceCents,
-    required this.costPriceCents,
+    this.unitPriceCents = 0,
+    this.costPriceCents = 0,
     this.discountCents = 0,
     this.batchNumber,
     this.expiryDate,
@@ -108,6 +108,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
   List<WarehouseEntity> _warehouses = [];
   List<CustomerEntity> _customers = [];
   List<ProductEntity> _products = [];
+  List<CategoryEntity> _categories = [];
   List<Map<String, dynamic>> _salesmen = [];
   List<UnitEntity> _availableUnits = [];
 
@@ -168,6 +169,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         _selectedCustomerId = _customers.first.id;
 
         _products = catalogRepo.getProducts(companyId: companyId);
+        _categories = catalogRepo.getCategories(companyId);
         _availableUnits = catalogRepo.getUnits(companyId);
 
         final usersResult = db.select(
@@ -219,21 +221,16 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
   }
 
   void _addNewBlankRow() {
-    if (_products.isEmpty) return;
-    final firstProd = _products.first;
-    final stock = _getWarehouseStock(firstProd.id);
-
     _rows.add(StandardPosItemRow(
-      productId: firstProd.id,
-      barcode: firstProd.sku,
-      name: firstProd.nameAr,
-      unitPriceCents: (_priceLevel == 'WHOLESALE' && firstProd.minSalePriceCents > 0)
-          ? firstProd.minSalePriceCents
-          : firstProd.salePriceCents,
-      costPriceCents: firstProd.costPriceCents,
-      warehouseStock: stock,
+      productId: '',
+      barcode: '',
+      name: '',
+      unitPriceCents: 0,
+      costPriceCents: 0,
+      warehouseStock: 0,
       isCarton: false,
-      unitsPerCarton: firstProd.unitsPerCarton,
+      unitsPerCarton: 1,
+      taxRatePercent: (_isTaxEnabled && _taxRatePercent > 0) ? _taxRatePercent : 0.0,
     ));
   }
 
@@ -961,6 +958,149 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
     return result ?? false;
   }
 
+  void _showProductSearchDialog(int rowIndex) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        String query = '';
+        return StatefulBuilder(
+          builder: (ctx, setDState) {
+            final q = query.trim().toLowerCase();
+            final filtered = _products.where((p) {
+              if (q.isEmpty) return true;
+              return p.nameAr.toLowerCase().contains(q) ||
+                  (p.nameEn != null && p.nameEn!.toLowerCase().contains(q)) ||
+                  p.sku.toLowerCase().contains(q) ||
+                  (p.cartonBarcode != null && p.cartonBarcode!.toLowerCase().contains(q));
+            }).toList();
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.search_rounded, color: AppColors.brandPrimary),
+                  const SizedBox(width: 8),
+                  const Text('اختيار وبحث الأصناف والمخزون', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Spacer(),
+                  Text('${filtered.length} صنف متوفر', style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                ],
+              ),
+              content: SizedBox(
+                width: 760,
+                height: 480,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: 'ابحث باسم الصنف، الباركود، الكود (SKU)، أو التصنيف...',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      onChanged: (val) => setDState(() => query = val),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(
+                              child: Text('لا توجد أصناف مطابقة لكلمة البحث', style: TextStyle(color: Colors.grey)),
+                            )
+                          : ListView.separated(
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (context, idx) {
+                                final p = filtered[idx];
+                                final stock = _getWarehouseStock(p.id);
+                                final isAvailable = stock > 0;
+                                final salePrice = (_priceLevel == 'WHOLESALE' && p.minSalePriceCents > 0)
+                                    ? p.minSalePrice
+                                    : p.salePrice;
+
+                                return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  leading: CircleAvatar(
+                                    backgroundColor: isAvailable ? AppColors.success.withValues(alpha: 0.15) : Colors.red.withValues(alpha: 0.15),
+                                    child: Icon(
+                                      isAvailable ? Icons.inventory_2_rounded : Icons.inventory_2_outlined,
+                                      color: isAvailable ? AppColors.success : Colors.red,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          p.nameAr,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: isAvailable ? Colors.green.shade50 : Colors.red.shade50,
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: isAvailable ? Colors.green.shade200 : Colors.red.shade200),
+                                        ),
+                                        child: Text(
+                                          'المخزون: $stock ${_getUnitNameById(p.baseUnitId)}',
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isAvailable ? Colors.green.shade800 : Colors.red.shade800),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Row(
+                                    children: [
+                                      Text('الباركود / SKU: ${p.sku}', style: const TextStyle(fontSize: 11)),
+                                      if (_getCategoryNameById(p.categoryId) != null) ...[
+                                        const SizedBox(width: 12),
+                                        Text('التصنيف: ${_getCategoryNameById(p.categoryId)}', style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                                      ],
+                                    ],
+                                  ),
+                                  trailing: Text(
+                                    '${salePrice.toStringAsFixed(2)} ${_currencyCode == 'YER' ? 'ريال يمني' : (_currencyCode == 'USD' ? 'دولار' : 'ريال')}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.brandPrimary),
+                                  ),
+                                  onTap: () {
+                                    Navigator.pop(ctx);
+                                    _assignProductToRow(rowIndex, p.id);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _getUnitNameById(String id) {
+    try {
+      return _availableUnits.firstWhere((u) => u.id == id).name;
+    } catch (_) {
+      return 'حبة';
+    }
+  }
+
+  String? _getCategoryNameById(String? id) {
+    if (id == null) return null;
+    try {
+      return _categories.firstWhere((c) => c.id == id).name;
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _showSnack(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1042,7 +1182,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
           ElevatedButton.icon(
             onPressed: _resetToNewInvoice,
             icon: const Icon(Icons.add, size: 18),
-            label: const Text('جديد', style: TextStyle(fontWeight: FontWeight.bold)),
+            label: const Text('جديد (F2)', style: TextStyle(fontWeight: FontWeight.bold)),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE64A19),
               foregroundColor: Colors.white,
@@ -1054,7 +1194,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
           // "حفظ" (Checkout/Payment Save)
           _buildActionButton(
-            label: _isEditingExisting ? 'حفظ التعديل' : 'حفظ (الدفع)',
+            label: _isEditingExisting ? 'حفظ التعديل (F10)' : 'حفظ الفاتورة (F10)',
             icon: Icons.save_rounded,
             onTap: _isExistingVoided ? null : _handleSaveInvoice,
             bgColor: const Color(0xFF4CAF50),
@@ -1094,7 +1234,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
           // "بحث" (Blue)
           _buildActionButton(
-            label: 'بحث',
+            label: 'بحث فواتير',
             icon: Icons.search_rounded,
             onTap: _handleSearchInvoices,
             bgColor: const Color(0xFF1976D2),
@@ -1584,25 +1724,46 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                       ),
                       const SizedBox(width: 4),
 
-                      // Product Autocomplete / Dropdown
+                      // Product Picker Cell (Triggers modal search dialog)
                       Expanded(
                         flex: 3,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: row.productId,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                            border: OutlineInputBorder(),
+                        child: InkWell(
+                          onTap: () => _showProductSearchDialog(index),
+                          child: Container(
+                            height: 38,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: row.productId.isEmpty ? Colors.amber.shade400 : Colors.grey.shade400,
+                                width: row.productId.isEmpty ? 1.5 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.search_rounded,
+                                  size: 16,
+                                  color: row.productId.isEmpty ? Colors.amber.shade800 : AppColors.brandPrimary,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    row.name.isNotEmpty ? row.name : 'اختر الصنف بالضغط هنا أو F3...',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: row.name.isNotEmpty ? FontWeight.bold : FontWeight.normal,
+                                      color: row.name.isNotEmpty ? Colors.black87 : Colors.grey.shade600,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (row.productId.isNotEmpty)
+                                  const Icon(Icons.swap_horiz_rounded, size: 16, color: Colors.blueGrey),
+                              ],
+                            ),
                           ),
-                          items: _products.map((p) {
-                            return DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis));
-                          }).toList(),
-                          onChanged: (newProdId) {
-                            if (newProdId != null) {
-                              _assignProductToRow(index, newProdId);
-                            }
-                          },
                         ),
                       ),
                       const SizedBox(width: 4),

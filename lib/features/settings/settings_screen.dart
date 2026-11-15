@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import '../../core/backup/backup_service.dart';
@@ -663,6 +664,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                 ),
               ],
             ),
+            const SizedBox(height: 28),
+            _buildDeveloperContactCard(),
           ],
         ),
       ),
@@ -2248,8 +2251,146 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                 ],
               ),
             ),
+            const SizedBox(height: 24),
+            _buildDeveloperContactCard(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDeveloperContactCard() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: AppColors.brandPrimary.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.brandAccent.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.brandPrimary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.support_agent_rounded, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'معلومات التواصل مع المطور والدعم الفني المباشر',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.brandPrimary),
+                    ),
+                    Text(
+                      'للدعم التقني، التطوير المخصص، واستفسارات منظومة ألفا سوفت',
+                      style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 20,
+            runSpacing: 12,
+            children: [
+              // Phone & WhatsApp
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.lightBgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.lightBorderSubtle),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Color(0xFFE8F5E9),
+                      child: Icon(Icons.phone_in_talk_rounded, color: AppColors.success, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('رقم الهاتف / واتساب:', style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                        SelectableText(
+                          '781235491',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, letterSpacing: 1),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, size: 18, color: AppColors.brandPrimary),
+                      tooltip: 'نسخ الرقم',
+                      onPressed: () {
+                        Clipboard.setData(const ClipboardData(text: '781235491'));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('تم نسخ رقم الهاتف بنجاح')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              // Instagram
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.lightBgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.lightBorderSubtle),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Color(0xFFFCE4EC),
+                      child: Icon(Icons.camera_alt_rounded, color: Color(0xFFE1306C), size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('حساب الإنستغرام:', style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                        SelectableText(
+                          '@mohlabss',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, size: 18, color: AppColors.brandPrimary),
+                      tooltip: 'نسخ الحساب',
+                      onPressed: () {
+                        Clipboard.setData(const ClipboardData(text: '@mohlabss'));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('تم نسخ حساب الإنستغرام بنجاح')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

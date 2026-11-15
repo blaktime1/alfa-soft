@@ -3,7 +3,6 @@ import 'package:alfa_soft/data/local/database_service.dart';
 import 'package:alfa_soft/core/printing/printer_service.dart';
 import 'package:alfa_soft/data/repositories/accounting_repository.dart';
 import 'package:alfa_soft/data/repositories/enterprise_repository.dart';
-import 'package:alfa_soft/domain/entities/accounting.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

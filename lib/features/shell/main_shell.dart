@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/providers/auth_provider.dart';
@@ -80,6 +81,137 @@ class _MainShellState extends ConsumerState<MainShell> with WindowListener {
         });
       }
     } catch (_) {}
+  }
+
+  void _showDeveloperContactDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.lightBgSurface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppColors.lightBorderSubtle),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.support_agent_rounded, color: AppColors.brandPrimary),
+            SizedBox(width: 10),
+            Text('معلومات التواصل مع المطور والدعم الفني', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'منظومة ألفا سوفت لإدارة المبيعات والمخازن والمحاسبة',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.brandAccent),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'لطلب المساعدة الفنية المباشرة، التحديثات المخصصة، أو الدعم التقني:',
+                style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+              ),
+              const SizedBox(height: 18),
+
+              // Phone Card
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.lightBgSubtle,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.lightBorderSubtle),
+                ),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Color(0xFFE8F5E9),
+                      child: Icon(Icons.phone_in_talk_rounded, color: AppColors.success, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('رقم الهاتف / واتساب المطور:', style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                          SelectableText(
+                            '781235491',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, color: AppColors.brandPrimary, size: 20),
+                      tooltip: 'نسخ الرقم',
+                      onPressed: () {
+                        Clipboard.setData(const ClipboardData(text: '781235491'));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('تم نسخ رقم الهاتف بنجاح')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Instagram Card
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.lightBgSubtle,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.lightBorderSubtle),
+                ),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Color(0xFFFCE4EC),
+                      child: Icon(Icons.camera_alt_rounded, color: Color(0xFFE1306C), size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('حساب الإنستغرام للمطور:', style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                          SelectableText(
+                            '@mohlabss',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, color: AppColors.brandPrimary, size: 20),
+                      tooltip: 'نسخ الحساب',
+                      onPressed: () {
+                        Clipboard.setData(const ClipboardData(text: '@mohlabss'));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('تم نسخ حساب الإنستغرام بنجاح')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إغلاق'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _confirmLogout() {
@@ -396,6 +528,13 @@ class _MainShellState extends ConsumerState<MainShell> with WindowListener {
                         onPressed: () {
                           ref.read(localeProvider.notifier).toggleLocale();
                         },
+                      ),
+
+                      // Developer Contact & Tech Support
+                      IconButton(
+                        icon: const Icon(Icons.support_agent_rounded, size: 20, color: AppColors.brandPrimary),
+                        tooltip: 'معلومات التواصل مع المطور والدعم الفني',
+                        onPressed: () => _showDeveloperContactDialog(context),
                       ),
 
                       // User Profile Info Card

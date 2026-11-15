@@ -9,6 +9,12 @@ import '../../core/theme/app_colors.dart';
 import '../../core/printing/esc_pos_builder.dart';
 import '../../core/printing/pdf_invoice_generator.dart';
 import '../../core/printing/excel_exporter.dart';
+import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import '../../core/printing/printer_service.dart';
+
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -30,16 +36,22 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
   String? _auditSelectedUserId;
   final _auditSearchController = TextEditingController();
 
+  // Annual Audit & Financial Report State
+  String _selectedAuditYear = '2026';
+  String _annualAuditSubTab = 'RECEIVABLE'; // 'RECEIVABLE', 'PAYABLE', 'INVENTORY'
+  final _debtSearchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     _auditSearchController.dispose();
+    _debtSearchController.dispose();
     super.dispose();
   }
 
@@ -68,6 +80,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
             Tab(icon: Icon(Icons.table_view_rounded), text: 'تصدير البيانات (Excel/CSV)'),
             Tab(icon: Icon(Icons.analytics_rounded), text: 'مؤشرات الأداء (Analytics)'),
             Tab(icon: Icon(Icons.history_edu_rounded), text: 'سجل حركات وعمليات النظام (System Operations Log)'),
+            Tab(icon: Icon(Icons.assessment_rounded), text: 'الجرد السنوي الشامل والمركز المالي (Annual Audit)'),
           ],
         ),
       ),
@@ -79,6 +92,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           _buildExcelExportTab(context),
           _buildAnalyticsTab(context),
           _buildInvoiceAuditReportTab(context),
+          _buildAnnualAuditTab(context),
         ],
       ),
     );
@@ -608,6 +622,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     final totalTax = (totalTaxRow['tax'] as int) / 100.0;
     final totalProducts = totalProductsRow['cnt'] as int;
 
+    final cur = PrinterService.defaultCurrency;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -619,7 +635,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           Row(
             children: [
               Expanded(
-                child: _metricCard('إجمالي المبيعات', '${totalSales.toStringAsFixed(2)} SAR', Icons.monetization_on_rounded, AppColors.success),
+                child: _metricCard('إجمالي المبيعات', '${totalSales.toStringAsFixed(2)} $cur', Icons.monetization_on_rounded, AppColors.success),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -627,7 +643,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
               ),
               const SizedBox(width: 16),
               Expanded(
-                child: _metricCard('ضريبة القيمة المضافة المحصلة', '${totalTax.toStringAsFixed(2)} SAR', Icons.percent_rounded, Colors.orange),
+                child: _metricCard('ضريبة القيمة المضافة المحصلة', '${totalTax.toStringAsFixed(2)} $cur', Icons.percent_rounded, Colors.orange),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -646,30 +662,30 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   const SizedBox(height: 16),
                   DataTable(
-                    columns: const [
-                      DataColumn(label: Text('كود الصنف')),
-                      DataColumn(label: Text('اسم الصنف')),
-                      DataColumn(label: Text('الكمية المباعة')),
-                      DataColumn(label: Text('إجمالي الإيرادات (SAR)')),
+                    columns: [
+                      const DataColumn(label: Text('كود الصنف')),
+                      const DataColumn(label: Text('اسم الصنف')),
+                      const DataColumn(label: Text('الكمية المباعة')),
+                      DataColumn(label: Text('إجمالي الإيرادات ($cur)')),
                     ],
-                    rows: const [
+                    rows: [
                       DataRow(cells: [
-                        DataCell(Text('1001')),
-                        DataCell(Text('مياه معدنية 500 مل')),
-                        DataCell(Text('120 حبة')),
-                        DataCell(Text('180.00 SAR')),
+                        const DataCell(Text('1001')),
+                        const DataCell(Text('مياه معدنية 500 مل')),
+                        const DataCell(Text('120 حبة')),
+                        DataCell(Text('180.00 $cur')),
                       ]),
                       DataRow(cells: [
-                        DataCell(Text('1002')),
-                        DataCell(Text('حليب طازج 1 لتر')),
-                        DataCell(Text('85 حبة')),
-                        DataCell(Text('510.00 SAR')),
+                        const DataCell(Text('1002')),
+                        const DataCell(Text('حليب طازج 1 لتر')),
+                        const DataCell(Text('85 حبة')),
+                        DataCell(Text('510.00 $cur')),
                       ]),
                       DataRow(cells: [
-                        DataCell(Text('1003')),
-                        DataCell(Text('أرز بسمتي 5 كجم')),
-                        DataCell(Text('42 كيس')),
-                        DataCell(Text('1,890.00 SAR')),
+                        const DataCell(Text('1003')),
+                        const DataCell(Text('أرز بسمتي 5 كجم')),
+                        const DataCell(Text('42 كيس')),
+                        DataCell(Text('1,890.00 $cur')),
                       ]),
                     ],
                   ),
@@ -995,6 +1011,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                         }
 
                         return ListTile(
+                          onTap: () => _showOperationDetailsDialog(context, log),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                           leading: CircleAvatar(
                             backgroundColor: badgeColor.withValues(alpha: 0.15),
@@ -1016,7 +1033,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                               ),
                               const SizedBox(width: 10),
                               Text(
-                                '${_getEntityArabicTitle(entityName)}: $entityId',
+                                _formatCleanArabicReference(entityName, entityId),
                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                               ),
                               const Spacer(),
@@ -1034,7 +1051,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  newState.isNotEmpty ? newState : (reason.isNotEmpty ? reason : 'تم تنفيذ العملية بنجاح'),
+                                  _cleanArabicAuditState(newState.isNotEmpty ? newState : (reason.isNotEmpty ? reason : 'تم تنفيذ العملية بنجاح')),
                                   style: const TextStyle(fontSize: 13, color: Colors.black87),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
@@ -1203,11 +1220,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     if (upper == 'VOID_SALES_INVOICE' || upper == 'VOID_SALE') return 'إلغاء فاتورة مبيعات';
     if (upper == 'POST_PURCHASE') return 'تسجيل فاتورة مشتريات';
     if (upper == 'VOID_PURCHASE') return 'إلغاء فاتورة مشتريات';
-    if (upper == 'PURCHASE_GRN') return 'سند استلام بضاعة (GRN)';
+    if (upper == 'PURCHASE_GRN' || upper == 'RECEIVE_GOODS') return 'سند استلام بضاعة (GRN)';
+    if (upper == 'CREATE_PURCHASE_ORDER') return 'إنشاء أمر شراء';
     if (upper == 'POST_JOURNAL_ENTRY') return 'ترحيل قيد محاسبي';
     if (upper == 'REVERSE_JOURNAL_ENTRY') return 'عكس قيد محاسبي';
     if (upper == 'EXPENSE_VOUCHER' || upper == 'POST_EXPENSE' || upper == 'CREATE_EXPENSE') return 'تسجيل سند صرف مصروفات';
     if (upper == 'SALARY_ADVANCE' || upper == 'POST_ADVANCE' || upper == 'CREATE_ADVANCE') return 'صرف سلفة موظف';
+    if (upper == 'RECEIPT_VOUCHER' || upper == 'POST_RECEIPT') return 'سند قبض / إيداع إيراد';
     if (upper == 'PAYROLL' || upper == 'GENERATE_PAYROLL') return 'توليد مسير رواتب';
     if (upper == 'APPROVE_PAYROLL') return 'اعتماد مسير رواتب';
     if (upper == 'POST_PAYROLL') return 'ترحيل مسير رواتب';
@@ -1216,9 +1235,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     if (upper == 'TRANSFER_RECEIPT') return 'استلام تحويل مخزني';
     if (upper == 'CREATE_USER') return 'إضافة مستخدم جديد';
     if (upper == 'UPDATE_USER') return 'تعديل مستخدم';
-    if (upper == 'BACKUP_DATABASE') return 'نسخ احتياطي لقاعدة البيانات';
+    if (upper == 'BACKUP_DATABASE') return 'نسخ احتياطي للبيانات';
     if (upper == 'OPTIMIZE_DATABASE') return 'تحسين وضغط البيانات';
     if (upper == 'RESTORE_DATABASE') return 'استعادة نسخة احتياطية';
+    if (upper == 'OPEN_POS_SHIFT') return 'فتح وردية كاشير';
+    if (upper == 'CLOSE_POS_SHIFT') return 'إغلاق وردية كاشير';
     if (upper == 'LAN_SYNC_PUSH') return 'مزامنة شبكة محلية (إرسال)';
     if (upper == 'LAN_SYNC_PULL') return 'مزامنة شبكة محلية (استقبال)';
     return action;
@@ -1228,10 +1249,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     final upper = entity.toUpperCase();
     if (upper == 'SALES_INVOICE' || upper == 'INVOICE') return 'فاتورة مبيعات';
     if (upper == 'PURCHASE_INVOICE') return 'فاتورة مشتريات';
-    if (upper == 'PURCHASE_GRN') return 'سند استلام بضاعة (GRN)';
+    if (upper == 'PURCHASE_ORDER') return 'أمر شراء';
+    if (upper == 'PURCHASE_GRN' || upper == 'GRN') return 'سند توريد مخزني';
     if (upper == 'JOURNAL_ENTRY') return 'قيد محاسبي';
     if (upper == 'EXPENSE_VOUCHER') return 'سند صرف مصروف';
     if (upper == 'SALARY_ADVANCE') return 'سلفة موظف';
+    if (upper == 'RECEIPT_VOUCHER') return 'سند قبض / إيداع';
     if (upper == 'PAYROLL_RUN') return 'مسير رواتب';
     if (upper == 'PRODUCT') return 'منتج / صنف';
     if (upper == 'USER') return 'مستخدم';
@@ -1240,20 +1263,92 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     if (upper == 'EMPLOYEE') return 'موظف';
     if (upper == 'WAREHOUSE') return 'مستودع';
     if (upper == 'BRANCH') return 'فرع';
+    if (upper == 'SHIFT') return 'وردية كاشير';
     if (upper == 'SYSTEM_SETTINGS' || upper == 'SETTINGS') return 'إعدادات النظام';
     return entity;
   }
 
+  String _formatCleanArabicReference(String entityName, String entityId) {
+    if (entityId.isEmpty) return _getEntityArabicTitle(entityName);
+    if (entityId.startsWith('INV-')) {
+      return 'فاتورة مبيعات #${entityId.replaceFirst('INV-', '')}';
+    }
+    if (entityId.startsWith('PINV-')) {
+      return 'فاتورة مشتريات #${entityId.replaceFirst('PINV-', '')}';
+    }
+    if (entityId.startsWith('PO-')) {
+      return 'أمر شراء #${entityId.replaceFirst('PO-', '')}';
+    }
+    if (entityId.startsWith('GRN-')) {
+      return 'إذن توريد #${entityId.replaceFirst('GRN-', '')}';
+    }
+    if (entityId.startsWith('ADV-')) {
+      return 'سلفة موظف #${entityId.replaceFirst('ADV-', '')}';
+    }
+    if (entityId.startsWith('EXP-')) {
+      return 'سند صرف #${entityId.replaceFirst('EXP-', '')}';
+    }
+    if (entityId.startsWith('RCT-')) {
+      return 'سند إيداع #${entityId.replaceFirst('RCT-', '')}';
+    }
+    if (entityId.startsWith('JE-')) {
+      return 'قيد يومية #${entityId.replaceFirst('JE-', '')}';
+    }
+    if (entityId.contains('-') && entityId.length >= 24) {
+      return '${_getEntityArabicTitle(entityName)} #${entityId.substring(entityId.length - 6)}';
+    }
+    return '${_getEntityArabicTitle(entityName)} #$entityId';
+  }
+
+  String _cleanArabicAuditState(String raw) {
+    if (raw.trim().isEmpty) return 'تم تنفيذ العملية واعتمادها بنجاح';
+    String res = raw;
+    res = res.replaceAll('POST_SALE:', 'اعتماد فاتورة مبيعات:');
+    res = res.replaceAll('POST_SALE', 'اعتماد مبيعات');
+    res = res.replaceAll('POST_PURCHASE:', 'فاتورة مشتريات:');
+    res = res.replaceAll('POST_PURCHASE', 'مشتريات');
+    res = res.replaceAll('RECEIVE_GOODS', 'استلام وتوريد مخزني');
+    res = res.replaceAll('Invoice: ', 'فاتورة: #');
+    res = res.replaceAll('PO: ', 'أمر شراء: #');
+    res = res.replaceAll('GRN: ', 'إذن توريد: #');
+    res = res.replaceAll('Total: ', 'الإجمالي: ');
+    res = res.replaceAll('Cost: ', 'التكلفة: ');
+    res = res.replaceAll('Lines: ', 'عدد الأصناف: ');
+    res = res.replaceAll('isCash: true', 'نقداً');
+    res = res.replaceAll('isCash: false', 'آجل');
+    res = res.replaceAll('Starting Cash: ', 'رصيد فتح الصندوق: ');
+    res = res.replaceAll('SAR', 'ريال');
+    res = res.replaceAll('YER', 'ريال يمني');
+    res = res.replaceAll('USD', 'دولار');
+    res = res.replaceAll('Customer: ', 'العميل: ');
+    res = res.replaceAll('Supplier: ', 'المورد: ');
+    res = res.replaceAll('Reason: ', 'السبب: ');
+    res = res.replaceAll('DESKTOP_POS', 'نقطة بيع');
+    res = res.replaceAll('DESKTOP_ERP', 'المنظومة');
+    return res;
+  }
+
   void _showOperationDetailsDialog(BuildContext context, Map<String, dynamic> log) {
+    final action = log['action'] as String? ?? '';
+    final entityName = log['entity_name'] as String? ?? '';
+    final entityId = log['entity_id'] as String? ?? '';
+    final userName = log['user_name'] as String? ?? 'مستخدم';
+    final branchName = log['branch_name'] as String? ?? 'الفرع';
+    final deviceId = log['device_id'] as String? ?? 'LOCAL';
+    final timestamp = log['timestamp'] as String? ?? '';
+    final reason = log['reason'] as String? ?? '';
+    final newState = log['new_state'] as String? ?? '';
+    final prevState = log['previous_state'] as String? ?? '';
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            const Icon(Icons.info_rounded, color: AppColors.brandPrimary),
+            const Icon(Icons.history_edu_rounded, color: AppColors.brandPrimary),
             const SizedBox(width: 8),
-            Text('تفاصيل العملية: ${_getActionArabicTitle(log['action'] as String? ?? "")}',
+            Text('تفاصيل العملية: ${_getActionArabicTitle(action)}',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
@@ -1264,41 +1359,76 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                _detailRow('كود العملية الإنجليزية:', log['action'] as String? ?? '-'),
-                _detailRow('المستند / الكيان:', '${_getEntityArabicTitle(log['entity_name'] as String? ?? "")} (${log['entity_id']})'),
-                _detailRow('المستخدم المنفذ:', '${log['user_name']} (${log['user_id']})'),
-                _detailRow('الفرع:', log['branch_name'] as String? ?? '-'),
-                _detailRow('الجهاز / المحطة:', log['device_id'] as String? ?? '-'),
-                _detailRow('توقيت العملية:', log['timestamp'] as String? ?? '-'),
-                const Divider(height: 24),
-                if ((log['reason'] as String? ?? '').isNotEmpty) ...[
+                _detailRow('نوع الحركة / العملية:', _getActionArabicTitle(action)),
+                _detailRow('المرجع في النظام:', _formatCleanArabicReference(entityName, entityId)),
+                _detailRow('التصنيف:', _getEntityArabicTitle(entityName)),
+                _detailRow('المستخدم المنفذ:', userName),
+                _detailRow('الفرع:', branchName),
+                _detailRow('الجهاز / المحطة:', deviceId),
+                _detailRow('وقت العملية:', timestamp.isNotEmpty ? DateFormat('yyyy/MM/dd • hh:mm a').format(DateTime.tryParse(timestamp) ?? DateTime.now()) : '-'),
+                const Divider(height: 20),
+                if (reason.isNotEmpty) ...[
                   const Text('السبب / مبرر العملية:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 4),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(color: Colors.amber.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                    child: Text(log['reason'] as String, style: const TextStyle(fontSize: 12)),
+                    child: Text(reason, style: const TextStyle(fontSize: 12)),
                   ),
                   const SizedBox(height: 12),
                 ],
-                const Text('بيان وحالة العملية (Payload / New State):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                const Text('بيان وحالة العملية:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                 const SizedBox(height: 4),
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: AppColors.lightBgSubtle, borderRadius: BorderRadius.circular(8)),
-                  child: SelectableText(log['new_state'] as String? ?? '-', style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.lightBgSubtle,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.lightBorderSubtle),
+                  ),
+                  child: Text(
+                    _cleanArabicAuditState(newState),
+                    style: const TextStyle(fontSize: 13, height: 1.4),
+                  ),
                 ),
-                if ((log['previous_state'] as String? ?? '').isNotEmpty) ...[
+                if (entityId.isNotEmpty || newState.isNotEmpty || prevState.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  const Text('الحالة السابقة (Previous State):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: AppColors.lightBgSubtle, borderRadius: BorderRadius.circular(8)),
-                    child: SelectableText(log['previous_state'] as String, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('المعرفات البرمجية والبيانات التقنية المتقدمة',
+                        style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                    children: [
+                      if (entityId.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Expanded(child: SelectableText('المعرف (ID): $entityId', style: const TextStyle(fontSize: 11, fontFamily: 'monospace'))),
+                              IconButton(
+                                icon: const Icon(Icons.copy_rounded, size: 14),
+                                tooltip: 'نسخ المعرف',
+                                onPressed: () {
+                                  Clipboard.setData(ClipboardData(text: entityId));
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نسخ المعرف بنجاح')));
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (newState.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        const Align(alignment: Alignment.centerRight, child: Text('Payload / Raw State:', style: TextStyle(fontSize: 10, color: Colors.grey))),
+                        SelectableText(newState, style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                      ],
+                      if (prevState.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        const Align(alignment: Alignment.centerRight, child: Text('Previous State:', style: TextStyle(fontSize: 10, color: Colors.grey))),
+                        SelectableText(prevState, style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                      ],
+                    ],
                   ),
                 ],
               ],
@@ -1324,5 +1454,860 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
       ),
     );
   }
-}
 
+  // -------------------------------------------------------------
+  // TAB 6: COMPREHENSIVE ANNUAL PHYSICAL & FINANCIAL AUDIT
+  // -------------------------------------------------------------
+  Widget _buildAnnualAuditTab(BuildContext context) {
+    final db = ref.read(databaseServiceProvider);
+    final cur = PrinterService.defaultCurrency;
+
+    final compRow = db.select('SELECT id, name_ar, tax_number, phone FROM companies LIMIT 1');
+    final companyId = compRow.isNotEmpty ? compRow.first['id'] as String : '';
+    final companyName = compRow.isNotEmpty ? (compRow.first['name_ar'] as String? ?? 'شركة ألفا سوفت') : 'شركة ألفا سوفت';
+    final companyTax = compRow.isNotEmpty ? (compRow.first['tax_number'] as String? ?? '') : '';
+    final companyPhone = compRow.isNotEmpty ? (compRow.first['phone'] as String? ?? '') : '';
+
+    final isAllYears = _selectedAuditYear == 'ALL';
+
+    // 1. Sales & Inflow
+    final salesQuery = isAllYears
+        ? "SELECT COALESCE(SUM(grand_total), 0) as total, COALESCE(SUM(paid_amount), 0) as paid, COUNT(*) as cnt FROM sales_invoices WHERE company_id = ? AND status != 'VOID'"
+        : "SELECT COALESCE(SUM(grand_total), 0) as total, COALESCE(SUM(paid_amount), 0) as paid, COUNT(*) as cnt FROM sales_invoices WHERE company_id = ? AND status != 'VOID' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
+    final salesRow = db.select(salesQuery, [companyId]).first;
+    final totalSalesCents = salesRow['total'] as int? ?? 0;
+    final salesCount = salesRow['cnt'] as int? ?? 0;
+
+    // 2. Purchases
+    final poQuery = isAllYears
+        ? "SELECT COALESCE(SUM(total_cents), 0) as total, COUNT(*) as cnt FROM purchase_orders WHERE company_id = ? AND status != 'CANCELLED'"
+        : "SELECT COALESCE(SUM(total_cents), 0) as total, COUNT(*) as cnt FROM purchase_orders WHERE company_id = ? AND status != 'CANCELLED' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
+    final poRow = db.select(poQuery, [companyId]).first;
+    final totalPurchasesCents = poRow['total'] as int? ?? 0;
+    final purchasesCount = poRow['cnt'] as int? ?? 0;
+
+    // 3. Operating Expenses
+    final expQuery = isAllYears
+        ? "SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt FROM expense_vouchers WHERE company_id = ? AND status != 'CANCELLED'"
+        : "SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt FROM expense_vouchers WHERE company_id = ? AND status != 'CANCELLED' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
+    final expRow = db.select(expQuery, [companyId]).first;
+    final totalExpensesCents = expRow['total'] as int? ?? 0;
+    final expensesCount = expRow['cnt'] as int? ?? 0;
+
+    // 4. Payroll Runs
+    final prQuery = isAllYears
+        ? "SELECT COALESCE(SUM(total_net), 0) as total, COUNT(*) as cnt FROM payroll_runs WHERE company_id = ? AND status != 'CANCELLED'"
+        : "SELECT COALESCE(SUM(total_net), 0) as total, COUNT(*) as cnt FROM payroll_runs WHERE company_id = ? AND status != 'CANCELLED' AND period_month LIKE '$_selectedAuditYear-%'";
+    final prRow = db.select(prQuery, [companyId]).first;
+    final totalPayrollCents = prRow['total'] as int? ?? 0;
+    final payrollCount = prRow['cnt'] as int? ?? 0;
+
+    // 5. Stock Valuation
+    final stockQuery = '''
+      SELECT 
+        p.id, p.barcode, p.sku, p.name_ar,
+        COALESCE(ib.quantity, 0) as quantity,
+        COALESCE(ib.average_cost, p.cost_price_cents, 0) as cost_price_cents,
+        p.unit_price_cents
+      FROM products p
+      LEFT JOIN inventory_balances ib ON ib.product_id = p.id
+      WHERE p.company_id = ? AND p.is_active = 1
+      ORDER BY p.name_ar ASC
+    ''';
+    final stockRows = db.select(stockQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+    int totalStockCostCents = 0;
+    int totalStockRetailCents = 0;
+    int totalStockQuantity = 0;
+    for (final s in stockRows) {
+      final qty = s['quantity'] as int? ?? 0;
+      final cost = s['cost_price_cents'] as int? ?? 0;
+      final retail = s['unit_price_cents'] as int? ?? 0;
+      totalStockCostCents += (qty * cost);
+      totalStockRetailCents += (qty * retail);
+      totalStockQuantity += qty;
+    }
+
+    // 6. Customers (Receivables - الديون التي لنا)
+    final custQuery = '''
+      SELECT id, code, name, phone, tax_number, credit_limit, current_balance
+      FROM customers
+      WHERE company_id = ? AND current_balance > 0
+      ORDER BY current_balance DESC
+    ''';
+    final custRows = db.select(custQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+    int totalReceivablesCents = 0;
+    for (final c in custRows) {
+      totalReceivablesCents += (c['current_balance'] as int? ?? 0);
+    }
+
+    // 7. Suppliers (Payables - الديون التي علينا)
+    final suppQuery = '''
+      SELECT id, code, name, phone, tax_number, current_balance
+      FROM suppliers
+      WHERE company_id = ? AND current_balance > 0
+      ORDER BY current_balance DESC
+    ''';
+    final suppRows = db.select(suppQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+    int totalPayablesCents = 0;
+    for (final s in suppRows) {
+      totalPayablesCents += (s['current_balance'] as int? ?? 0);
+    }
+
+    // Profit calculation:
+    final totalOutflowCents = totalPurchasesCents + totalExpensesCents + totalPayrollCents;
+    final netProfitCents = totalSalesCents - totalOutflowCents;
+
+    // Search query filtering
+    final query = _debtSearchController.text.trim().toLowerCase();
+    final filteredCustRows = custRows.where((c) {
+      if (query.isEmpty) return true;
+      final name = (c['name'] as String? ?? '').toLowerCase();
+      final phone = (c['phone'] as String? ?? '').toLowerCase();
+      final code = (c['code'] as String? ?? '').toLowerCase();
+      return name.contains(query) || phone.contains(query) || code.contains(query);
+    }).toList();
+
+    final filteredSuppRows = suppRows.where((s) {
+      if (query.isEmpty) return true;
+      final name = (s['name'] as String? ?? '').toLowerCase();
+      final phone = (s['phone'] as String? ?? '').toLowerCase();
+      final code = (s['code'] as String? ?? '').toLowerCase();
+      return name.contains(query) || phone.contains(query) || code.contains(query);
+    }).toList();
+
+    final filteredStockRows = stockRows.where((st) {
+      if (query.isEmpty) return true;
+      final name = (st['name_ar'] as String? ?? '').toLowerCase();
+      final barcode = (st['barcode'] as String? ?? '').toLowerCase();
+      final sku = (st['sku'] as String? ?? '').toLowerCase();
+      return name.contains(query) || barcode.contains(query) || sku.contains(query);
+    }).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Bar
+          Card(
+            elevation: 1,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppColors.brandPrimary.withValues(alpha: 0.15),
+                    radius: 22,
+                    child: const Icon(Icons.assessment_rounded, color: AppColors.brandPrimary, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('الجرد السنوي الشامل والتقرير المالي الختامي',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        SizedBox(height: 2),
+                        Text('كشف التدفقات النقدية، تقييم المخزون، وسجل الديون والالتزامات المالية بدقة تامة',
+                            style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
+                      ],
+                    ),
+                  ),
+                  // Financial Year Selector
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.white,
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedAuditYear,
+                        items: const [
+                          DropdownMenuItem(value: '2026', child: Text('السنة المالية 2026')),
+                          DropdownMenuItem(value: '2025', child: Text('السنة المالية 2025')),
+                          DropdownMenuItem(value: '2024', child: Text('السنة المالية 2024')),
+                          DropdownMenuItem(value: 'ALL', child: Text('كافة الفترات والسنوات')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setState(() => _selectedAuditYear = val);
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.brandPrimary,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.print_rounded, size: 18),
+                    label: const Text('طباعة وتصدير التقرير (PDF)'),
+                    onPressed: () => _printAnnualAuditReport(
+                      context: context,
+                      companyName: companyName,
+                      companyTax: companyTax,
+                      companyPhone: companyPhone,
+                      selectedYear: _selectedAuditYear,
+                      totalSalesCents: totalSalesCents,
+                      salesCount: salesCount,
+                      totalPurchasesCents: totalPurchasesCents,
+                      purchasesCount: purchasesCount,
+                      totalExpensesCents: totalExpensesCents,
+                      expensesCount: expensesCount,
+                      totalPayrollCents: totalPayrollCents,
+                      payrollCount: payrollCount,
+                      totalStockCostCents: totalStockCostCents,
+                      totalStockRetailCents: totalStockRetailCents,
+                      totalStockQuantity: totalStockQuantity,
+                      totalReceivablesCents: totalReceivablesCents,
+                      totalPayablesCents: totalPayablesCents,
+                      netProfitCents: netProfitCents,
+                      custRows: custRows,
+                      suppRows: suppRows,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Key Financial Metric Cards
+          Row(
+            children: [
+              _buildAuditKpiCard(
+                title: 'إجمالي الأموال الداخلة (المبيعات)',
+                value: '${(totalSalesCents / 100.0).toStringAsFixed(2)} $cur',
+                subtitle: '$salesCount فاتورة مبيعات معتمدة',
+                icon: Icons.payments_rounded,
+                color: AppColors.success,
+              ),
+              const SizedBox(width: 12),
+              _buildAuditKpiCard(
+                title: 'إجمالي المصروفات والرواتب',
+                value: '${((totalExpensesCents + totalPayrollCents) / 100.0).toStringAsFixed(2)} $cur',
+                subtitle: 'مصاريف: ${(totalExpensesCents / 100.0).toStringAsFixed(0)} | رواتب: ${(totalPayrollCents / 100.0).toStringAsFixed(0)}',
+                icon: Icons.trending_down_rounded,
+                color: Colors.deepOrange,
+              ),
+              const SizedBox(width: 12),
+              _buildAuditKpiCard(
+                title: 'إجمالي المشتريات والتوريد',
+                value: '${(totalPurchasesCents / 100.0).toStringAsFixed(2)} $cur',
+                subtitle: '$purchasesCount أمر شراء وتوريد',
+                icon: Icons.local_shipping_rounded,
+                color: Colors.teal,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildAuditKpiCard(
+                title: 'قيمة بضاعة المخزون (بالتكلفة)',
+                value: '${(totalStockCostCents / 100.0).toStringAsFixed(2)} $cur',
+                subtitle: 'القيمة بالبيع: ${(totalStockRetailCents / 100.0).toStringAsFixed(2)} $cur',
+                icon: Icons.inventory_2_rounded,
+                color: Colors.blue.shade700,
+              ),
+              const SizedBox(width: 12),
+              _buildAuditKpiCard(
+                title: 'الديون التي لنا (العملاء المدينون)',
+                value: '${(totalReceivablesCents / 100.0).toStringAsFixed(2)} $cur',
+                subtitle: '${custRows.length} عميل مستحق عليهم ديون',
+                icon: Icons.account_balance_wallet_rounded,
+                color: Colors.amber.shade800,
+              ),
+              const SizedBox(width: 12),
+              _buildAuditKpiCard(
+                title: 'الديون التي علينا (الموردون والدائنون)',
+                value: '${(totalPayablesCents / 100.0).toStringAsFixed(2)} $cur',
+                subtitle: '${suppRows.length} مورد مستحق لهم ديون',
+                icon: Icons.receipt_long_rounded,
+                color: Colors.purple.shade700,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Net Profit / Operating Result Banner
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            decoration: BoxDecoration(
+              color: (netProfitCents >= 0 ? AppColors.success : AppColors.danger).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: (netProfitCents >= 0 ? AppColors.success : AppColors.danger).withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  netProfitCents >= 0 ? Icons.check_circle_rounded : Icons.warning_rounded,
+                  color: netProfitCents >= 0 ? AppColors.success : AppColors.danger,
+                  size: 28,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'صافي الأرباح التقديرية للفترة: ${(netProfitCents / 100.0).toStringAsFixed(2)} $cur',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: netProfitCents >= 0 ? AppColors.success : AppColors.danger,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'تم احتساب الأرباح وفق المعادلة: إجمالي المبيعات - (المشتريات وتكلفة البضاعة + المصروفات التشغيلية + الرواتب)',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Sub-Tab Switcher & Search Bar
+          Row(
+            children: [
+              ChoiceChip(
+                label: Text('الديون التي لنا (العملاء المدينون) [${custRows.length}]'),
+                selected: _annualAuditSubTab == 'RECEIVABLE',
+                onSelected: (sel) => setState(() => _annualAuditSubTab = 'RECEIVABLE'),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: Text('الديون التي علينا (الموردون والدائنون) [${suppRows.length}]'),
+                selected: _annualAuditSubTab == 'PAYABLE',
+                onSelected: (sel) => setState(() => _annualAuditSubTab = 'PAYABLE'),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: Text('جرد وتقييم المخزون الحالي [${stockRows.length}]'),
+                selected: _annualAuditSubTab == 'INVENTORY',
+                onSelected: (sel) => setState(() => _annualAuditSubTab = 'INVENTORY'),
+              ),
+              const Spacer(),
+              // Search Field
+              SizedBox(
+                width: 280,
+                child: TextField(
+                  controller: _debtSearchController,
+                  decoration: InputDecoration(
+                    hintText: 'بحث بالاسم، الكود، أو الهاتف...',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    suffixIcon: _debtSearchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded, size: 16),
+                            onPressed: () => setState(() => _debtSearchController.clear()),
+                          )
+                        : null,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Sub-Tab Content
+          Card(
+            elevation: 1,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _buildSubTabTable(cur, filteredCustRows, filteredSuppRows, filteredStockRows),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAuditKpiCard({
+    required String title,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: color.withValues(alpha: 0.15),
+              radius: 20,
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                  const SizedBox(height: 3),
+                  Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(fontSize: 10, color: Colors.grey.shade600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubTabTable(
+    String cur,
+    List<Map<String, dynamic>> custRows,
+    List<Map<String, dynamic>> suppRows,
+    List<Map<String, dynamic>> stockRows,
+  ) {
+    if (_annualAuditSubTab == 'RECEIVABLE') {
+      if (custRows.isEmpty) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: Column(
+              children: [
+                Icon(Icons.check_circle_outline_rounded, size: 48, color: AppColors.success),
+                SizedBox(height: 10),
+                Text('لا توجد أي ديون مسجلة على العملاء (كافة الحسابات مسددة بالكامل)',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.lightTextSecondary)),
+              ],
+            ),
+          ),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.people_rounded, size: 18, color: Colors.amber),
+              const SizedBox(width: 6),
+              const Text('كشف العملاء المدينين ومبالغ الديون المستحقة لنا:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Spacer(),
+              Text('عدد المدينين: ${custRows.length}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(AppColors.lightBgSubtle),
+              columns: [
+                const DataColumn(label: Text('كود العميل', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('اسم العميل', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('رقم الهاتف', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('الرقم الضريبي', style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('المبلغ المستحق لنا ($cur)', style: const TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('الحالة', style: TextStyle(fontWeight: FontWeight.bold))),
+              ],
+              rows: custRows.map((c) {
+                final bal = ((c['current_balance'] as int? ?? 0) / 100.0);
+                return DataRow(cells: [
+                  DataCell(Text(c['code'] as String? ?? '-', style: const TextStyle(fontFamily: 'monospace'))),
+                  DataCell(Text(c['name'] as String? ?? '-')),
+                  DataCell(Text(c['phone'] as String? ?? '-')),
+                  DataCell(Text(c['tax_number'] as String? ?? '-')),
+                  DataCell(Text('${bal.toStringAsFixed(2)} $cur', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red))),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
+                      child: const Text('مدين لنا', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ]);
+              }).toList(),
+            ),
+          ),
+        ],
+      );
+    } else if (_annualAuditSubTab == 'PAYABLE') {
+      if (suppRows.isEmpty) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: Column(
+              children: [
+                Icon(Icons.check_circle_outline_rounded, size: 48, color: AppColors.success),
+                SizedBox(height: 10),
+                Text('لا توجد أي التزامات أو ديون مستحقة للموردين حالياً',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.lightTextSecondary)),
+              ],
+            ),
+          ),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.storefront_rounded, size: 18, color: Colors.purple),
+              const SizedBox(width: 6),
+              const Text('كشف الموردين والدائنين ومبالغ الالتزامات المستحقة عليهم:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Spacer(),
+              Text('عدد الدائنين: ${suppRows.length}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(AppColors.lightBgSubtle),
+              columns: [
+                const DataColumn(label: Text('كود المورد', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('اسم المورد / الشركة', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('رقم الهاتف', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('الرقم الضريبي', style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('المبلغ المستحق له ($cur)', style: const TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('الحالة', style: TextStyle(fontWeight: FontWeight.bold))),
+              ],
+              rows: suppRows.map((s) {
+                final bal = ((s['current_balance'] as int? ?? 0) / 100.0);
+                return DataRow(cells: [
+                  DataCell(Text(s['code'] as String? ?? '-', style: const TextStyle(fontFamily: 'monospace'))),
+                  DataCell(Text(s['name'] as String? ?? '-')),
+                  DataCell(Text(s['phone'] as String? ?? '-')),
+                  DataCell(Text(s['tax_number'] as String? ?? '-')),
+                  DataCell(Text('${bal.toStringAsFixed(2)} $cur', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple))),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(color: Colors.purple.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
+                      child: const Text('دائن علينا', style: TextStyle(color: Colors.purple, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ]);
+              }).toList(),
+            ),
+          ),
+        ],
+      );
+    } else {
+      // INVENTORY
+      if (stockRows.isEmpty) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: Text('لا توجد أي أصناف مسجلة في المخزن'),
+          ),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.inventory_2_rounded, size: 18, color: Colors.blue),
+              const SizedBox(width: 6),
+              const Text('جرد بضاعة المستودعات وتقييم التكلفة والبيع:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Spacer(),
+              Text('عدد الأصناف: ${stockRows.length}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(AppColors.lightBgSubtle),
+              columns: [
+                const DataColumn(label: Text('الباركود / SKU', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('اسم الصنف', style: TextStyle(fontWeight: FontWeight.bold))),
+                const DataColumn(label: Text('الكمية بالمخزن', style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('سعر التكلفة ($cur)', style: const TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('سعر البيع ($cur)', style: const TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('إجمالي التكلفة ($cur)', style: const TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('إجمالي البيع ($cur)', style: const TextStyle(fontWeight: FontWeight.bold))),
+              ],
+              rows: stockRows.take(50).map((st) {
+                final qty = st['quantity'] as int? ?? 0;
+                final cost = (st['cost_price_cents'] as int? ?? 0) / 100.0;
+                final retail = (st['unit_price_cents'] as int? ?? 0) / 100.0;
+                final totalCost = (qty * cost);
+                final totalRetail = (qty * retail);
+                return DataRow(cells: [
+                  DataCell(Text(st['barcode'] ?? st['sku'] ?? '-', style: const TextStyle(fontFamily: 'monospace'))),
+                  DataCell(Text(st['name_ar'] as String? ?? '-')),
+                  DataCell(Text('$qty وحدة', style: TextStyle(fontWeight: FontWeight.bold, color: qty > 0 ? Colors.green : Colors.red))),
+                  DataCell(Text(cost.toStringAsFixed(2))),
+                  DataCell(Text(retail.toStringAsFixed(2))),
+                  DataCell(Text('${totalCost.toStringAsFixed(2)} $cur', style: const TextStyle(fontWeight: FontWeight.bold))),
+                  DataCell(Text('${totalRetail.toStringAsFixed(2)} $cur', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue))),
+                ]);
+              }).toList(),
+            ),
+          ),
+          if (stockRows.length > 50)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('* تم عرض أول 50 صنفاً للاستعراض السريع. لطباعة الجرد الكامل، اضغط على زر طباعة وتصدير التقرير أعلاه.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
+            ),
+        ],
+      );
+    }
+  }
+
+  Future<void> _printAnnualAuditReport({
+    required BuildContext context,
+    required String companyName,
+    required String companyTax,
+    required String companyPhone,
+    required String selectedYear,
+    required int totalSalesCents,
+    required int salesCount,
+    required int totalPurchasesCents,
+    required int purchasesCount,
+    required int totalExpensesCents,
+    required int expensesCount,
+    required int totalPayrollCents,
+    required int payrollCount,
+    required int totalStockCostCents,
+    required int totalStockRetailCents,
+    required int totalStockQuantity,
+    required int totalReceivablesCents,
+    required int totalPayablesCents,
+    required int netProfitCents,
+    required List<Map<String, dynamic>> custRows,
+    required List<Map<String, dynamic>> suppRows,
+  }) async {
+    final theme = await PdfInvoiceGenerator.getInvoiceTheme();
+    final cur = PrinterService.defaultCurrency;
+
+    await Printing.layoutPdf(
+      name: 'annual_audit_report_$selectedYear.pdf',
+      onLayout: (PdfPageFormat format) async {
+        final doc = pw.Document(theme: theme);
+        final dateStr = DateFormat('yyyy/MM/dd HH:mm').format(DateTime.now());
+        final yearTitle = selectedYear == 'ALL' ? 'كافة السنوات المالية' : 'السنة المالية $selectedYear';
+
+        doc.addPage(
+          pw.MultiPage(
+            pageFormat: format,
+            textDirection: pw.TextDirection.rtl,
+            header: (pw.Context ctx) => pw.Column(
+              children: [
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(companyName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16)),
+                        if (companyTax.isNotEmpty) pw.Text('الرقم الضريبي: $companyTax', style: const pw.TextStyle(fontSize: 10)),
+                        if (companyPhone.isNotEmpty) pw.Text('الهاتف: $companyPhone', style: const pw.TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        pw.Text('تقرير الجرد السنوي والمركز المالي الختامي', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
+                        pw.Text(yearTitle, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                        pw.Text('تاريخ التقرير: $dateStr', style: const pw.TextStyle(fontSize: 9)),
+                      ],
+                    ),
+                  ],
+                ),
+                pw.Divider(thickness: 1.5),
+                pw.SizedBox(height: 10),
+              ],
+            ),
+            footer: (pw.Context ctx) => pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('منظومة ألفا سوفت لإدارة المبيعات والمحاسبة والمخازن', style: const pw.TextStyle(fontSize: 8)),
+                pw.Text('صفحة ${ctx.pageNumber} من ${ctx.pagesCount}', style: const pw.TextStyle(fontSize: 8)),
+              ],
+            ),
+            build: (pw.Context ctx) => [
+              pw.Text('أولاً: ملخص المؤشرات المالية والتدفقات النقدية', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+              pw.SizedBox(height: 6),
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey400),
+                children: [
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('البند المالي / البيان', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('القيمة المالية ($cur)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('عدد العمليات / الملاحظات', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('إجمالي المبيعات والإيرادات')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalSalesCents / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('$salesCount فاتورة مبيعات')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('إجمالي المشتريات وتوريد البضاعة')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalPurchasesCents / 100.0).toStringAsFixed(2)} $cur')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('$purchasesCount أمر شراء')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('المصروفات التشغيلية والعمومية')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalExpensesCents / 100.0).toStringAsFixed(2)} $cur')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('$expensesCount سند صرف')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('مسيرات الرواتب والأجور')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalPayrollCents / 100.0).toStringAsFixed(2)} $cur')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('$payrollCount مسير رواتب')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('قيمة بضاعة المخزون (بسعر التكلفة)')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalStockCostCents / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('إجمالي الكميات: $totalStockQuantity وحدة')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('قيمة بضاعة المخزون (بسعر البيع)')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalStockRetailCents / 100.0).toStringAsFixed(2)} $cur')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('القيمة البيعية المتوقعة')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(color: PdfColors.blue50),
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('صافي الربح التقديري للفترة', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(netProfitCents / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(netProfitCents >= 0 ? 'أرباح تشغيلية محققة' : 'عجز / خسارة تشغيلية')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('إجمالي الديون التي لنا (العملاء المدينون)')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalReceivablesCents / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${custRows.length} عميل مدين')),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('إجمالي الديون التي علينا (الموردون والدائنون)')),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${(totalPayablesCents / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${suppRows.length} مورد دائن')),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 16),
+
+              pw.Text('ثانياً: بيان الديون المستحقة لنا على العملاء (Accounts Receivable)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+              pw.SizedBox(height: 4),
+              if (custRows.isEmpty)
+                pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('لا توجد أي ديون مستحقة على العملاء حالياً.', style: const pw.TextStyle(fontSize: 10)))
+              else
+                pw.Table(
+                  border: pw.TableBorder.all(color: PdfColors.grey300),
+                  children: [
+                    pw.TableRow(
+                      decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+                      children: [
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('كود العميل', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('اسم العميل', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('رقم الهاتف', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('المبلغ المستحق لنا ($cur)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                      ],
+                    ),
+                    ...custRows.take(15).map((c) => pw.TableRow(
+                          children: [
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${c['code']}', style: const pw.TextStyle(fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${c['name']}', style: const pw.TextStyle(fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${c['phone'] ?? '-'}', style: const pw.TextStyle(fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${((c['current_balance'] as int? ?? 0) / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
+                          ],
+                        )),
+                  ],
+                ),
+              pw.SizedBox(height: 16),
+
+              pw.Text('ثالثاً: بيان الديون المستحقة للموردين علينا (Accounts Payable)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+              pw.SizedBox(height: 4),
+              if (suppRows.isEmpty)
+                pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('لا توجد أي التزامات أو ديون للموردين حالياً.', style: const pw.TextStyle(fontSize: 10)))
+              else
+                pw.Table(
+                  border: pw.TableBorder.all(color: PdfColors.grey300),
+                  children: [
+                    pw.TableRow(
+                      decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+                      children: [
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('كود المورد', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('اسم المورد / الشركة', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('رقم الهاتف', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('المبلغ المستحق للمورد ($cur)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
+                      ],
+                    ),
+                    ...suppRows.take(15).map((s) => pw.TableRow(
+                          children: [
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${s['code']}', style: const pw.TextStyle(fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${s['name']}', style: const pw.TextStyle(fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${s['phone'] ?? '-'}', style: const pw.TextStyle(fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${((s['current_balance'] as int? ?? 0) / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
+                          ],
+                        )),
+                  ],
+                ),
+              pw.SizedBox(height: 24),
+
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Text('المحاسب المسؤول / مدقق الجرد', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                      pw.SizedBox(height: 35),
+                      pw.Text('التوقيع: ........................................', style: const pw.TextStyle(fontSize: 9)),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Text('المدير العام / الاعتماد والختم الرسمي', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                      pw.SizedBox(height: 35),
+                      pw.Text('التوقيع والختم: ........................................', style: const pw.TextStyle(fontSize: 9)),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+
+        return doc.save();
+      },
+    );
+  }
+}

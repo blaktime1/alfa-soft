@@ -7,13 +7,16 @@ class AccountingRepository {
   const AccountingRepository(this._db);
 
   /// Automatically seeds standard Chart of Accounts if empty for this company
-  void seedStandardChartOfAccounts(String companyId) {
-    final existing = _db.select(
-      'SELECT COUNT(*) as cnt FROM chart_of_accounts WHERE company_id = ?',
-      [companyId],
-    );
-    if ((existing.first['cnt'] as int) > 0) return;
+  static const Set<String> systemAccountCodes = {
+    '1010', '1020', '1100', '1150', '1200', '1500',
+    '2010', '2020', '2030', '3010', '3020', '4010', '4020', '4030',
+    '5010', '5020', '5021', '5030', '5031', '5101'
+  };
 
+  bool isSystemAccount(String code) => systemAccountCodes.contains(code.trim());
+
+  /// Seeds standard chart of accounts for a company if not already seeded
+  void seedStandardChartOfAccounts(String companyId) {
     const uuid = Uuid();
     final defaultAccounts = [
       // 1. Assets
@@ -27,6 +30,7 @@ class AccountingRepository {
       // 2. Liabilities
       {'code': '2010', 'name_ar': 'الموردون والدائنون', 'name_en': 'Accounts Payable', 'type': 'LIABILITY', 'is_leaf': 1},
       {'code': '2020', 'name_ar': 'ضريبة القيمة المضافة المستحقة (15%)', 'name_en': 'VAT Output Payable', 'type': 'LIABILITY', 'is_leaf': 1},
+      {'code': '2030', 'name_ar': 'تأمينات وأمانات إيجار مستردة', 'name_en': 'Rental Security Deposits', 'type': 'LIABILITY', 'is_leaf': 1},
 
       // 3. Equity
       {'code': '3010', 'name_ar': 'رأس المال المستثمر', 'name_en': 'Owner Capital', 'type': 'EQUITY', 'is_leaf': 1},
@@ -35,6 +39,7 @@ class AccountingRepository {
       // 4. Revenue
       {'code': '4010', 'name_ar': 'إيرادات المبيعات', 'name_en': 'Sales Revenue', 'type': 'REVENUE', 'is_leaf': 1},
       {'code': '4020', 'name_ar': 'خصومات ومسموحات المبيعات', 'name_en': 'Sales Discounts', 'type': 'REVENUE', 'is_leaf': 1},
+      {'code': '4030', 'name_ar': 'إيرادات الإيجارات والأملاك والإيرادات الأخرى', 'name_en': 'Rental & Other Revenue', 'type': 'REVENUE', 'is_leaf': 1},
 
       // 5. Expenses
       {'code': '5010', 'name_ar': 'تكلفة البضاعة المباعة (COGS)', 'name_en': 'Cost of Goods Sold', 'type': 'EXPENSE', 'is_leaf': 1},
@@ -42,23 +47,30 @@ class AccountingRepository {
       {'code': '5021', 'name_ar': 'مصروفات صيانة وإصلاحات وأعطال', 'name_en': 'Maintenance & Repairs', 'type': 'EXPENSE', 'is_leaf': 1},
       {'code': '5030', 'name_ar': 'مصروف الإيجار', 'name_en': 'Rent Expense', 'type': 'EXPENSE', 'is_leaf': 1},
       {'code': '5031', 'name_ar': 'مصروفات كهرباء ومياه وهاتف وإنترنت', 'name_en': 'Utilities & Services', 'type': 'EXPENSE', 'is_leaf': 1},
+      {'code': '5101', 'name_ar': 'مصروف الرواتب والأجور الشهرية', 'name_en': 'Salaries & Wages Expense', 'type': 'EXPENSE', 'is_leaf': 1},
     ];
 
     _db.transaction((tx) {
       for (final a in defaultAccounts) {
-        tx.execute('''
-          INSERT INTO chart_of_accounts (
-            id, company_id, code, name_ar, name_en, account_type, is_leaf, is_active, current_balance
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)
-        ''', [
-          'acc_${a['code']}_${uuid.v4().substring(0, 8)}',
-          companyId,
-          a['code'],
-          a['name_ar'],
-          a['name_en'],
-          a['type'],
-          a['is_leaf'],
-        ]);
+        final existingAcc = tx.select(
+          'SELECT id FROM chart_of_accounts WHERE company_id = ? AND code = ?',
+          [companyId, a['code']],
+        );
+        if (existingAcc.isEmpty) {
+          tx.execute('''
+            INSERT INTO chart_of_accounts (
+              id, company_id, code, name_ar, name_en, account_type, is_leaf, is_active, current_balance
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)
+          ''', [
+            'acc_${a['code']}_${uuid.v4().substring(0, 8)}',
+            companyId,
+            a['code'],
+            a['name_ar'],
+            a['name_en'],
+            a['type'],
+            a['is_leaf'],
+          ]);
+        }
       }
     });
   }
@@ -161,6 +173,93 @@ class AccountingRepository {
       isActive ? 1 : 0,
       accountId,
     ]);
+  }
+
+  /// Deletes a custom user-added account from chart of accounts
+  void deleteAccount(String accountId) {
+    final rows = _db.select('SELECT code, name_ar, current_balance, company_id FROM chart_of_accounts WHERE id = ?', [accountId]);
+    if (rows.isEmpty) return;
+    final code = rows.first['code'] as String;
+    final nameAr = rows.first['name_ar'] as String;
+    final balance = rows.first['current_balance'] as int;
+
+    if (isSystemAccount(code)) {
+      throw ArgumentError('لا يمكن حذف الحسابات الأساسية الافتراضية للنظام (كود: $code)');
+    }
+    if (balance != 0) {
+      throw ArgumentError('لا يمكن حذف الحساب ($nameAr) لوجود رصيد مالي قائم (${balance / 100.0})');
+    }
+    final jlUsage = _db.select('SELECT COUNT(*) as cnt FROM journal_lines WHERE account_id = ?', [accountId]);
+    if ((jlUsage.first['cnt'] as int) > 0) {
+      throw ArgumentError('لا يمكن حذف الحساب ($nameAr) لوجود قيود وحركات محاسبية مسجلة عليه');
+    }
+
+    _db.execute('DELETE FROM chart_of_accounts WHERE id = ?', [accountId]);
+  }
+
+  /// Records a Receipt / Revenue Deposit Voucher (سند إيداع وقبض إيراد أو إيجار)
+  /// Dr. Cash/Bank (1010/1020)
+  /// Cr. Revenue / Rent / Deposits Account (4030 / 2030)
+  JournalEntry postReceiptVoucher({
+    required String companyId,
+    required String branchId,
+    required String userId,
+    required String receiptNumber,
+    required DateTime voucherDate,
+    required int amountCents,
+    required String debitAccountId,
+    required String creditAccountId,
+    required String description,
+    String? referenceNumber,
+  }) {
+    if (amountCents <= 0) {
+      throw ArgumentError('مبلغ سند القبض والإيداع يجب أن يكون أكبر من الصفر');
+    }
+
+    final entryNumber = 'JE-RCT-${voucherDate.year}-${receiptNumber.replaceAll(RegExp(r'[^0-9]'), '')}';
+
+    final lines = [
+      {
+        'accountId': debitAccountId,
+        'debit': amountCents,
+        'credit': 0,
+        'description': 'إيداع وقبض: $description',
+      },
+      {
+        'accountId': creditAccountId,
+        'debit': 0,
+        'credit': amountCents,
+        'description': 'إيراد / إيداع: $description',
+      },
+    ];
+
+    final je = postJournalEntry(
+      companyId: companyId,
+      branchId: branchId,
+      userId: userId,
+      entryNumber: entryNumber,
+      entryDate: voucherDate,
+      sourceType: 'RECEIPT_VOUCHER',
+      sourceId: receiptNumber,
+      narration: 'سند إيداع وقبض #$receiptNumber: $description',
+      rawLines: lines,
+    );
+
+    // Audit log
+    const uuid = Uuid();
+    _db.execute('''
+      INSERT INTO audit_logs (id, company_id, branch_id, user_id, device_id, action, entity_name, entity_id, new_state)
+      VALUES (?, ?, ?, ?, 'LOCAL_DESKTOP', 'RECEIPT_VOUCHER', 'RECEIPT_VOUCHER', ?, ?)
+    ''', [
+      'aud_${uuid.v4()}',
+      companyId,
+      branchId,
+      userId,
+      receiptNumber,
+      'سند قبض وإيداع: $receiptNumber، المبلغ: ${amountCents / 100.0}، البيان: $description',
+    ]);
+
+    return je;
   }
 
   /// Reverses an existing journal entry (swapping Debits and Credits and reverting balances)

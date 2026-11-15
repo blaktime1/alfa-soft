@@ -292,4 +292,94 @@ class PurchaseRepository {
       status: 'POSTED',
     );
   }
+
+  /// Updates an existing purchase order / invoice
+  void updatePurchaseOrder({
+    required String poId,
+    required String supplierId,
+    String? notes,
+    required List<Map<String, dynamic>> items,
+    required String userId,
+  }) {
+    int subtotalCents = 0;
+    for (final item in items) {
+      final qty = item['quantity'] as int;
+      final cost = item['unitCostCents'] as int;
+      subtotalCents += qty * cost;
+    }
+    final taxTotalCents = (subtotalCents * 0.15).round();
+    final grandTotalCents = subtotalCents + taxTotalCents;
+
+    _db.transaction((tx) {
+      final oldPo = tx.select('SELECT company_id, branch_id, order_number FROM purchase_orders WHERE id = ?', [poId]).first;
+      final companyId = oldPo['company_id'] as String;
+      final branchId = oldPo['branch_id'] as String;
+      final orderNumber = oldPo['order_number'] as String;
+
+      tx.execute('''
+        UPDATE purchase_orders
+        SET supplier_id = ?, subtotal = ?, tax_total = ?, grand_total = ?, notes = ?
+        WHERE id = ?
+      ''', [supplierId, subtotalCents, taxTotalCents, grandTotalCents, notes?.trim(), poId]);
+
+      // Delete old items and insert updated lines
+      tx.execute('DELETE FROM purchase_order_items WHERE purchase_order_id = ?', [poId]);
+
+      const uuid = Uuid();
+      for (final item in items) {
+        final qty = item['quantity'] as int;
+        final cost = item['unitCostCents'] as int;
+        tx.execute('''
+          INSERT INTO purchase_order_items (
+            id, purchase_order_id, product_id, unit_id, quantity,
+            received_quantity, unit_cost, line_total
+          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+        ''', [
+          'poi_${uuid.v4()}',
+          poId,
+          item['productId'],
+          item['unitId'],
+          qty,
+          cost,
+          qty * cost,
+        ]);
+      }
+
+      // Audit Log
+      tx.execute('''
+        INSERT INTO audit_logs (id, company_id, branch_id, user_id, device_id, action, entity_name, entity_id, new_state)
+        VALUES (?, ?, ?, ?, 'LOCAL_DESKTOP', 'EDIT_PURCHASE_ORDER', 'PURCHASE_ORDER', ?, ?)
+      ''', [
+        'aud_${uuid.v4()}',
+        companyId,
+        branchId,
+        userId,
+        poId,
+        'تعديل أمر شراء: $orderNumber، الإجمالي: ${grandTotalCents / 100.0}، عدد الأصناف: ${items.length}',
+      ]);
+    });
+  }
+
+  /// Retrieves list of goods receipt notes with supplier and warehouse names
+  List<Map<String, dynamic>> getGoodsReceiptNotes(String companyId) {
+    return _db.select('''
+      SELECT grn.*, s.name as supplier_name, s.phone as supplier_phone, w.name as warehouse_name, u.full_name as receiver_name
+      FROM goods_receipt_notes grn
+      LEFT JOIN suppliers s ON grn.supplier_id = s.id
+      LEFT JOIN warehouses w ON grn.warehouse_id = w.id
+      LEFT JOIN users u ON grn.created_by_user_id = u.id
+      WHERE grn.company_id = ?
+      ORDER BY grn.receipt_date DESC, grn.created_at DESC
+    ''', [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// Retrieves items of a specific goods receipt note
+  List<Map<String, dynamic>> getGoodsReceiptItems(String receiptId) {
+    return _db.select('''
+      SELECT gri.*, p.name_ar, p.sku
+      FROM goods_receipt_items gri
+      LEFT JOIN products p ON gri.product_id = p.id
+      WHERE gri.receipt_id = ?
+    ''', [receiptId]).map((r) => Map<String, dynamic>.from(r)).toList();
+  }
 }

@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../core/providers/app_state_provider.dart';
+import '../../core/printing/printer_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/purchase_repository.dart';
 import '../../data/repositories/partner_repository.dart';
@@ -21,10 +26,14 @@ class PurchasesScreen extends ConsumerStatefulWidget {
 class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   List<PurchaseOrderEntity> _orders = [];
+  List<Map<String, dynamic>> _grnNotes = [];
   List<SupplierEntity> _suppliers = [];
   List<ProductEntity> _products = [];
   List<WarehouseEntity> _warehouses = [];
   bool _isLoading = true;
+  String _orderStatusFilter = 'ALL';
+  String? _selectedSupplierFilter;
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -36,6 +45,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -51,6 +61,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
       if (compResult.isNotEmpty) {
         final companyId = compResult.first['id'] as String;
         _orders = purchaseRepo.getPurchaseOrders(companyId);
+        _grnNotes = purchaseRepo.getGoodsReceiptNotes(companyId);
         _suppliers = partnerRepo.getSuppliers(companyId);
         _products = catalogRepo.getProducts(companyId: companyId);
 
@@ -61,7 +72,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
         }
       }
     } catch (_) {
-      // Handle gracefully
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -77,122 +87,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
 
     final orderNumber = 'PO-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
     String supplierId = _suppliers.first.id;
-    String productId = _products.first.id;
-    final qtyController = TextEditingController(text: '10');
-    final costController = TextEditingController(text: _products.first.costPrice.toStringAsFixed(2));
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('إنشاء أمر شراء جديد (PO)', style: TextStyle(fontWeight: FontWeight.bold)),
-              content: SizedBox(
-                width: 500,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('رقم الأمر: $orderNumber', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: supplierId,
-                      decoration: const InputDecoration(labelText: 'المورد *'),
-                      items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                      onChanged: (v) => setDialogState(() => supplierId = v!),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: productId,
-                      decoration: const InputDecoration(labelText: 'الصنف المطلوب *'),
-                      items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr))).toList(),
-                      onChanged: (v) {
-                        setDialogState(() {
-                          productId = v!;
-                          final sel = _products.firstWhere((p) => p.id == v);
-                          costController.text = sel.costPrice.toStringAsFixed(2);
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: qtyController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'الكمية *'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: costController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(labelText: 'تكلفة الوحدة (SAR) *'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-                ElevatedButton(
-                  onPressed: () {
-                    final qty = int.tryParse(qtyController.text) ?? 1;
-                    final costCents = ((double.tryParse(costController.text) ?? 0.0) * 100).round();
-
-                    final db = ref.read(databaseServiceProvider);
-                    final repo = PurchaseRepository(db);
-                    final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
-                    final branchId = db.select('SELECT id FROM branches WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
-                    final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
-                    final unitId = _products.firstWhere((p) => p.id == productId).baseUnitId;
-
-                    repo.createPurchaseOrder(
-                      companyId: companyId,
-                      branchId: branchId,
-                      supplierId: supplierId,
-                      userId: userId,
-                      orderNumber: orderNumber,
-                      items: [
-                        {
-                          'productId': productId,
-                          'unitId': unitId,
-                          'quantity': qty,
-                          'unitCostCents': costCents,
-                        }
-                      ],
-                    );
-
-                    Navigator.pop(ctx);
-                    _loadData();
-                  },
-                  child: const Text('حفظ أمر الشراء'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showDirectPurchaseInvoiceDialog() {
-    if (_suppliers.isEmpty || _products.isEmpty || _warehouses.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى تسجيل مورد ومستودع وصنف واحد على الأقل أولاً')),
-      );
-      return;
-    }
-
-    final invoiceNumber = 'PINV-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
-    String supplierId = _suppliers.first.id;
-    String warehouseId = _warehouses.first.id;
-    String paymentMethod = 'CASH'; // 'CASH' or 'CREDIT'
+    final notesController = TextEditingController();
 
     final items = <Map<String, dynamic>>[
       {
@@ -216,6 +111,388 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
             final grandTotal = subtotal + vat;
 
             return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.add_shopping_cart_rounded, color: AppColors.brandPrimary),
+                  const SizedBox(width: 8),
+                  Text('إنشاء أمر شراء جديد ($orderNumber)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: SizedBox(
+                width: 700,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: supplierId,
+                        decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
+                        items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
+                        onChanged: (v) => setDState(() => supplierId = v!),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('أصناف أمر الشراء:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          TextButton.icon(
+                            onPressed: () {
+                              setDState(() {
+                                items.add({
+                                  'productId': _products.first.id,
+                                  'quantity': 1,
+                                  'costPrice': _products.first.costPrice,
+                                });
+                              });
+                            },
+                            icon: const Icon(Icons.add_circle_outline),
+                            label: const Text('إضافة صنف'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ...List.generate(items.length, (idx) {
+                        final item = items[idx];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: item['productId'] as String,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setDState(() {
+                                        item['productId'] = val;
+                                        final prod = _products.firstWhere((p) => p.id == val);
+                                        item['costPrice'] = prod.costPrice;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 1,
+                                child: TextFormField(
+                                  initialValue: item['quantity'].toString(),
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(labelText: 'الكمية', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  onChanged: (val) => setDState(() => item['quantity'] = int.tryParse(val) ?? 1),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: TextFormField(
+                                  initialValue: (item['costPrice'] as double).toStringAsFixed(2),
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: InputDecoration(labelText: 'التكلفة (${PrinterService.defaultCurrency})', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  onChanged: (val) => setDState(() => item['costPrice'] = double.tryParse(val) ?? 0.0),
+                                ),
+                              ),
+                              if (items.length > 1)
+                                IconButton(
+                                  icon: const Icon(Icons.remove_circle_outline, color: AppColors.danger),
+                                  onPressed: () => setDState(() => items.removeAt(idx)),
+                                ),
+                            ],
+                          ),
+                        );
+                      }),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: notesController,
+                        decoration: const InputDecoration(labelText: 'ملاحظات أمر الشراء', border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('المجموع: ${subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text('الضريبة (15%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text('الإجمالي: ${grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                ElevatedButton(
+                  onPressed: () {
+                    final db = ref.read(databaseServiceProvider);
+                    final repo = PurchaseRepository(db);
+                    final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
+                    final branchId = db.select('SELECT id FROM branches WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
+                    final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
+
+                    final poItems = items.map((it) {
+                      final prod = _products.firstWhere((p) => p.id == it['productId']);
+                      return {
+                        'productId': it['productId'],
+                        'unitId': prod.baseUnitId,
+                        'quantity': it['quantity'],
+                        'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                      };
+                    }).toList();
+
+                    repo.createPurchaseOrder(
+                      companyId: companyId,
+                      branchId: branchId,
+                      supplierId: supplierId,
+                      userId: userId,
+                      orderNumber: orderNumber,
+                      notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+                      items: poItems,
+                    );
+
+                    Navigator.pop(ctx);
+                    _loadData();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('تم إنشاء أمر الشراء $orderNumber بنجاح'), backgroundColor: AppColors.success),
+                    );
+                  },
+                  child: const Text('حفظ أمر الشراء'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showEditOrderDialog(PurchaseOrderEntity po) {
+    String supplierId = po.supplierId;
+    final notesController = TextEditingController(text: po.notes ?? '');
+
+    final items = po.items.map((it) {
+      return {
+        'productId': it.productId,
+        'quantity': it.quantity,
+        'costPrice': it.unitCost,
+      };
+    }).toList();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDState) {
+            double subtotal = 0;
+            for (final it in items) {
+              subtotal += (it['quantity'] as int) * (it['costPrice'] as double);
+            }
+            final vat = subtotal * 0.15;
+            final grandTotal = subtotal + vat;
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.edit_note_rounded, color: AppColors.brandPrimary),
+                  const SizedBox(width: 8),
+                  Text('تعديل أمر الشراء (${po.orderNumber})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: SizedBox(
+                width: 700,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: supplierId,
+                        decoration: const InputDecoration(labelText: 'المورد *', border: OutlineInputBorder()),
+                        items: _suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
+                        onChanged: (v) => setDState(() => supplierId = v!),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('أصناف أمر الشراء:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          TextButton.icon(
+                            onPressed: () {
+                              setDState(() {
+                                items.add({
+                                  'productId': _products.first.id,
+                                  'quantity': 1,
+                                  'costPrice': _products.first.costPrice,
+                                });
+                              });
+                            },
+                            icon: const Icon(Icons.add_circle_outline),
+                            label: const Text('إضافة صنف'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ...List.generate(items.length, (idx) {
+                        final item = items[idx];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: item['productId'] as String,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setDState(() {
+                                        item['productId'] = val;
+                                        final prod = _products.firstWhere((p) => p.id == val);
+                                        item['costPrice'] = prod.costPrice;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 1,
+                                child: TextFormField(
+                                  initialValue: item['quantity'].toString(),
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(labelText: 'الكمية', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  onChanged: (val) => setDState(() => item['quantity'] = int.tryParse(val) ?? 1),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: TextFormField(
+                                  initialValue: (item['costPrice'] as double).toStringAsFixed(2),
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: InputDecoration(labelText: 'التكلفة (${PrinterService.defaultCurrency})', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  onChanged: (val) => setDState(() => item['costPrice'] = double.tryParse(val) ?? 0.0),
+                                ),
+                              ),
+                              if (items.length > 1)
+                                IconButton(
+                                  icon: const Icon(Icons.remove_circle_outline, color: AppColors.danger),
+                                  onPressed: () => setDState(() => items.removeAt(idx)),
+                                ),
+                            ],
+                          ),
+                        );
+                      }),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: notesController,
+                        decoration: const InputDecoration(labelText: 'ملاحظات أمر الشراء', border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('المجموع: ${subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text('الضريبة (15%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text('الإجمالي: ${grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                ElevatedButton(
+                  onPressed: () {
+                    final db = ref.read(databaseServiceProvider);
+                    final repo = PurchaseRepository(db);
+                    final userId = db.select('SELECT id FROM users LIMIT 1').first['id'] as String;
+
+                    final poItems = items.map((it) {
+                      final prod = _products.firstWhere((p) => p.id == it['productId']);
+                      return {
+                        'productId': it['productId'],
+                        'unitId': prod.baseUnitId,
+                        'quantity': it['quantity'],
+                        'unitCostCents': ((it['costPrice'] as double) * 100).round(),
+                      };
+                    }).toList();
+
+                    repo.updatePurchaseOrder(
+                      poId: po.id,
+                      supplierId: supplierId,
+                      notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+                      items: poItems,
+                      userId: userId,
+                    );
+
+                    Navigator.pop(ctx);
+                    _loadData();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('تم تحديث أمر الشراء ${po.orderNumber} بنجاح'), backgroundColor: AppColors.success),
+                    );
+                  },
+                  child: const Text('حفظ التعديلات'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showDirectPurchaseInvoiceDialog() {
+    if (_suppliers.isEmpty || _products.isEmpty || _warehouses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يرجى تسجيل مورد ومستودع وصنف واحد على الأقل أولاً')),
+      );
+      return;
+    }
+
+    final invoiceNumber = 'PINV-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
+    String supplierId = _suppliers.first.id;
+    String warehouseId = _warehouses.first.id;
+    String paymentMethod = 'CASH';
+
+    final items = <Map<String, dynamic>>[
+      {
+        'productId': _products.first.id,
+        'quantity': 10,
+        'costPrice': _products.first.costPrice,
+      }
+    ];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDState) {
+            double subtotal = 0;
+            for (final it in items) {
+              subtotal += (it['quantity'] as int) * (it['costPrice'] as double);
+            }
+            final vat = subtotal * 0.15;
+            final grandTotal = subtotal + vat;
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
                   const Icon(Icons.receipt_long_rounded, color: AppColors.success),
@@ -316,11 +593,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                                   initialValue: item['quantity'].toString(),
                                   keyboardType: TextInputType.number,
                                   decoration: const InputDecoration(labelText: 'الكمية', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) {
-                                    setDState(() {
-                                      item['quantity'] = int.tryParse(val) ?? 1;
-                                    });
-                                  },
+                                  onChanged: (val) => setDState(() => item['quantity'] = int.tryParse(val) ?? 1),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -329,47 +602,41 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                                 child: TextFormField(
                                   initialValue: (item['costPrice'] as double).toStringAsFixed(2),
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: const InputDecoration(labelText: 'سعر الشراء', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  onChanged: (val) {
-                                    setDState(() {
-                                      item['costPrice'] = double.tryParse(val) ?? 0.0;
-                                    });
-                                  },
+                                  decoration: InputDecoration(labelText: 'سعر الشراء (${PrinterService.defaultCurrency})', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                  onChanged: (val) => setDState(() => item['costPrice'] = double.tryParse(val) ?? 0.0),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Container(
-                                width: 100,
+                                width: 110,
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
                                 child: Text(
-                                  '${((item['quantity'] as int) * (item['costPrice'] as double)).toStringAsFixed(2)} SAR',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  '${((item['quantity'] as int) * (item['costPrice'] as double)).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                                 ),
                               ),
                               if (items.length > 1)
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                                  icon: const Icon(Icons.remove_circle_outline, color: AppColors.danger),
                                   onPressed: () => setDState(() => items.removeAt(idx)),
                                 ),
                             ],
                           ),
                         );
                       }),
+                      const SizedBox(height: 16),
 
-                      const Divider(height: 24),
-                      // Summary box
                       Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(color: AppColors.lightBgSubtle, borderRadius: BorderRadius.circular(8)),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('الإجمالي قبل الضريبة: ${subtotal.toStringAsFixed(2)} SAR', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('الضريبة (15%): ${vat.toStringAsFixed(2)} SAR', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('الإجمالي النهائي: ${grandTotal.toStringAsFixed(2)} SAR',
-                                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.success, fontSize: 15)),
+                            Text('المجموع قبل الضريبة: ${subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text('ضريبة القيمة المضافة (15%): ${vat.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
+                            Text('الإجمالي النهائي: ${grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.success)),
                           ],
                         ),
                       ),
@@ -392,7 +659,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                     final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
 
                     try {
-                      // 1. Create Purchase Order
                       final poItems = items.map((it) {
                         final prod = _products.firstWhere((p) => p.id == it['productId']);
                         return {
@@ -412,7 +678,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                         items: poItems,
                       );
 
-                      // 2. Receive Goods Immediately into warehouse
                       final grnItems = items.map((it) {
                         return {
                           'productId': it['productId'],
@@ -432,7 +697,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                         receivedItems: grnItems,
                       );
 
-                      // 3. If credit, increase supplier balance
                       if (paymentMethod == 'CREDIT') {
                         final grandCents = (grandTotal * 100).round();
                         db.execute('''
@@ -442,7 +706,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                         ''', [grandCents, supplierId]);
                       }
 
-                      // 4. Double-Entry Accounting
                       final totalCostCents = (subtotal * 100).round();
                       final supplierName = _suppliers.firstWhere((s) => s.id == supplierId).name;
                       accountingRepo.postPurchaseGrnJournal(
@@ -494,6 +757,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text('استلام بضاعة مخزنياً (GRN)', style: TextStyle(fontWeight: FontWeight.bold)),
               content: SizedBox(
                 width: 500,
@@ -518,7 +782,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                       return ListTile(
                         dense: true,
                         title: Text(prod.nameAr),
-                        subtitle: Text('الكمية: ${i.quantity} | تكلفة الوحدة: ${i.unitCost.toStringAsFixed(2)} SAR'),
+                        subtitle: Text('الكمية: ${i.quantity} | تكلفة الوحدة: ${i.unitCost.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
                       );
                     }),
                   ],
@@ -565,6 +829,145 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
     );
   }
 
+  Future<void> _printPurchaseOrder(PurchaseOrderEntity po) async {
+    final supplier = _suppliers.firstWhere(
+      (s) => s.id == po.supplierId,
+      orElse: () => SupplierEntity(id: '', companyId: '', code: '', name: 'مورد غير مسجل'),
+    );
+
+    final db = ref.read(databaseServiceProvider);
+    final compResult = db.select('SELECT trade_name, legal_name, tax_number, address, phone FROM companies LIMIT 1');
+    final comp = compResult.isNotEmpty ? compResult.first : <String, dynamic>{};
+    final companyName = (comp['trade_name'] ?? comp['legal_name'] ?? 'ALFA SOFT') as String;
+    final taxNo = (comp['tax_number'] ?? '') as String;
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async {
+        final doc = pw.Document();
+
+        doc.addPage(
+          pw.Page(
+            pageFormat: format,
+            textDirection: pw.TextDirection.rtl,
+            build: (pw.Context ctx) {
+              return pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(companyName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 18)),
+                          if (taxNo.isNotEmpty) pw.Text('الرقم الضريبي: $taxNo', style: const pw.TextStyle(fontSize: 10)),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text('فاتورة وأمر شراء', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16)),
+                          pw.Text('رقم المستند: ${po.orderNumber}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                          pw.Text('التاريخ: ${DateFormat('yyyy/MM/dd').format(po.orderDate)}', style: const pw.TextStyle(fontSize: 10)),
+                        ],
+                      ),
+                    ],
+                  ),
+                  pw.Divider(thickness: 1.5),
+                  pw.SizedBox(height: 8),
+
+                  pw.Container(
+                    padding: const pw.EdgeInsets.all(8),
+                    decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
+                    child: pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text('المورد: ${supplier.name}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                        if (supplier.phone != null) pw.Text('الهاتف: ${supplier.phone}', style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text('الحالة: ${po.status == 'RECEIVED' ? 'تم الاستلام' : 'معلق'}', style: const pw.TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(height: 16),
+
+                  pw.Table(
+                    border: pw.TableBorder.all(color: PdfColors.grey300),
+                    children: [
+                      pw.TableRow(
+                        decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('#', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('اسم الصنف', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('الكمية', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('سعر الوحدة', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('المجموع', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                        ],
+                      ),
+                      ...List.generate(po.items.length, (i) {
+                        final item = po.items[i];
+                        final prod = _products.firstWhere((p) => p.id == item.productId, orElse: () => _products.first);
+                        return pw.TableRow(
+                          children: [
+                            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${i + 1}', style: const pw.TextStyle(fontSize: 10))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(prod.nameAr, style: const pw.TextStyle(fontSize: 10))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${item.quantity}', style: const pw.TextStyle(fontSize: 10))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${item.unitCost.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const pw.TextStyle(fontSize: 10))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${item.lineTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const pw.TextStyle(fontSize: 10))),
+                          ],
+                        );
+                      }),
+                    ],
+                  ),
+                  pw.SizedBox(height: 16),
+
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.end,
+                    children: [
+                      pw.Container(
+                        width: 240,
+                        padding: const pw.EdgeInsets.all(8),
+                        decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Row(
+                              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                              children: [
+                                pw.Text('المجموع قبل الضريبة:', style: const pw.TextStyle(fontSize: 10)),
+                                pw.Text('${po.subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const pw.TextStyle(fontSize: 10)),
+                              ],
+                            ),
+                            pw.Row(
+                              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                              children: [
+                                pw.Text('ضريبة القيمة المضافة (15%):', style: const pw.TextStyle(fontSize: 10)),
+                                pw.Text('${po.taxTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const pw.TextStyle(fontSize: 10)),
+                              ],
+                            ),
+                            pw.Divider(),
+                            pw.Row(
+                              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                              children: [
+                                pw.Text('الإجمالي الكلي:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                                pw.Text('${po.grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+
+        return doc.save();
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -573,9 +976,20 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
       return const Center(child: CircularProgressIndicator());
     }
 
+    final query = _searchController.text.trim().toLowerCase();
+    final filteredOrders = _orders.where((po) {
+      if (_orderStatusFilter != 'ALL' && po.status != _orderStatusFilter) return false;
+      if (_selectedSupplierFilter != null && po.supplierId != _selectedSupplierFilter) return false;
+      if (query.isNotEmpty) {
+        final supplier = _suppliers.firstWhere((s) => s.id == po.supplierId, orElse: () => SupplierEntity(id: '', companyId: '', code: '', name: ''));
+        return po.orderNumber.toLowerCase().contains(query) || supplier.name.toLowerCase().contains(query);
+      }
+      return true;
+    }).toList();
+
     return Scaffold(
       body: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -586,10 +1000,10 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('إدارة المشتريات والتوريد',
+                      Text('إدارة المشتريات والتوريد الشاملة',
                           style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text('أوامر الشراء، أذون الاستلام الفعلي (GRN)، واحتساب التكلفة المرجحة',
+                      Text('أوامر الشراء، كشف التوريد الفعلي (GRN)، التعديل، والطباعة والتصدير',
                           style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.7))),
                     ],
                   ),
@@ -607,81 +1021,222 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                 ElevatedButton.icon(
                   onPressed: _showCreateOrderDialog,
                   icon: const Icon(Icons.add_shopping_cart_rounded),
-                  label: const Text('أمر شراء (PO)'),
+                  label: const Text('أمر شراء جديد (PO)'),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // Orders Table
+            // Tab bar
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.lightBgSurface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.lightBorderSubtle),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicatorColor: AppColors.brandAccent,
+                labelColor: AppColors.brandPrimary,
+                unselectedLabelColor: AppColors.lightTextSecondary,
+                tabs: [
+                  Tab(icon: const Icon(Icons.shopping_bag_outlined, size: 18), text: 'أوامر وفواتير الشراء (${filteredOrders.length})'),
+                  Tab(icon: const Icon(Icons.inventory_2_rounded, size: 18), text: 'كشف حركات الاستلام والتوريد المخزني (${_grnNotes.length})'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Tab Views
             Expanded(
-              child: Card(
-                child: _orders.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.shopping_bag_outlined,
-                                size: 56, color: theme.colorScheme.onSurface.withValues(alpha: 0.3)),
-                            const SizedBox(height: 12),
-                            Text('لا توجد أوامر شراء مسجلة',
-                                style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
-                          ],
-                        ),
-                      )
-                    : SingleChildScrollView(
-                        child: DataTable(
-                          columns: const [
-                            DataColumn(label: Text('رقم الأمر')),
-                            DataColumn(label: Text('المورد')),
-                            DataColumn(label: Text('تاريخ الأمر')),
-                            DataColumn(label: Text('المجموع الكلي')),
-                            DataColumn(label: Text('الحالة')),
-                            DataColumn(label: Text('الإجراء')),
-                          ],
-                          rows: _orders.map((po) {
-                            final supplier = _suppliers.firstWhere(
-                              (s) => s.id == po.supplierId,
-                              orElse: () => SupplierEntity(id: '', companyId: '', code: '', name: 'مورد غير مسجل'),
-                            );
-                            final isReceived = po.status == 'RECEIVED';
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  // Tab 1: Orders & Invoices List
+                  _buildOrdersView(filteredOrders),
 
-                            return DataRow(cells: [
-                              DataCell(Text(po.orderNumber, style: const TextStyle(fontWeight: FontWeight.bold))),
-                              DataCell(Text(supplier.name)),
-                              DataCell(Text('${po.orderDate.year}-${po.orderDate.month.toString().padLeft(2, '0')}-${po.orderDate.day.toString().padLeft(2, '0')}')),
-                              DataCell(Text('${po.grandTotal.toStringAsFixed(2)} SAR',
-                                  style: const TextStyle(fontWeight: FontWeight.bold))),
-                              DataCell(Chip(
-                                label: Text(isReceived ? 'تم الاستلام' : 'معلق / بانتظار التوريد',
-                                    style: const TextStyle(fontSize: 11)),
-                                backgroundColor: isReceived
-                                    ? AppColors.success.withValues(alpha: 0.15)
-                                    : AppColors.warning.withValues(alpha: 0.15),
-                                side: BorderSide.none,
-                              )),
-                              DataCell(
-                                isReceived
-                                    ? const Icon(Icons.check_circle_rounded, color: AppColors.success)
-                                    : ElevatedButton.icon(
-                                        icon: const Icon(Icons.download_rounded, size: 16),
-                                        label: const Text('استلام بضاعة (GRN)'),
-                                        style: ElevatedButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                          backgroundColor: AppColors.brandAccent,
-                                        ),
-                                        onPressed: () => _showReceiveGoodsDialog(po),
-                                      ),
-                              ),
-                            ]);
-                          }).toList(),
-                        ),
-                      ),
+                  // Tab 2: GRN Supply Statement
+                  _buildGrnStatementView(),
+                ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildOrdersView(List<PurchaseOrderEntity> filteredOrders) {
+    return Column(
+      children: [
+        // Filter bar
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  hintText: 'ابحث برقم الأمر أو اسم المورد...',
+                  prefixIcon: Icon(Icons.search, size: 20),
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: 10),
+            DropdownButton<String>(
+              value: _orderStatusFilter,
+              items: const [
+                DropdownMenuItem(value: 'ALL', child: Text('كافة الحالات')),
+                DropdownMenuItem(value: 'PENDING', child: Text('معلق / بانتظار التوريد')),
+                DropdownMenuItem(value: 'RECEIVED', child: Text('تم الاستلام الفعلي')),
+              ],
+              onChanged: (v) => setState(() => _orderStatusFilter = v!),
+            ),
+            const SizedBox(width: 10),
+            DropdownButton<String?>(
+              value: _selectedSupplierFilter,
+              hint: const Text('تصفية بالمورد'),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('كافة الموردين')),
+                ..._suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))),
+              ],
+              onChanged: (v) => setState(() => _selectedSupplierFilter = v),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        Expanded(
+          child: Card(
+            child: filteredOrders.isEmpty
+                ? const Center(child: Text('لا توجد أوامر شراء مطابقة لمعايير البحث', style: TextStyle(color: Colors.grey)))
+                : ListView.separated(
+                    itemCount: filteredOrders.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, idx) {
+                      final po = filteredOrders[idx];
+                      final supplier = _suppliers.firstWhere(
+                        (s) => s.id == po.supplierId,
+                        orElse: () => SupplierEntity(id: '', companyId: '', code: '', name: 'مورد غير مسجل'),
+                      );
+                      final isReceived = po.status == 'RECEIVED';
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isReceived ? AppColors.success.withValues(alpha: 0.15) : AppColors.warning.withValues(alpha: 0.15),
+                          child: Icon(
+                            isReceived ? Icons.check_circle_rounded : Icons.pending_actions_rounded,
+                            color: isReceived ? AppColors.success : AppColors.warning,
+                          ),
+                        ),
+                        title: Row(
+                          children: [
+                            Text(po.orderNumber, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const SizedBox(width: 10),
+                            Text('• ${supplier.name}', style: const TextStyle(fontSize: 13)),
+                            const Spacer(),
+                            Text(
+                              '${po.grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.brandPrimary),
+                            ),
+                          ],
+                        ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Text('التاريخ: ${DateFormat('yyyy/MM/dd').format(po.orderDate)}', style: const TextStyle(fontSize: 11)),
+                              const SizedBox(width: 16),
+                              Text('الأصناف: ${po.items.length} صنف', style: const TextStyle(fontSize: 11)),
+                              const SizedBox(width: 16),
+                              Chip(
+                                label: Text(isReceived ? 'تم التوريد للمخزن' : 'معلق / قيد التوريد', style: const TextStyle(fontSize: 10)),
+                                backgroundColor: isReceived ? AppColors.success.withValues(alpha: 0.1) : AppColors.warning.withValues(alpha: 0.1),
+                                side: BorderSide.none,
+                                padding: EdgeInsets.zero,
+                              ),
+                            ],
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!isReceived)
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.download_rounded, size: 16),
+                                label: const Text('استلام (GRN)'),
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandAccent, foregroundColor: Colors.white),
+                                onPressed: () => _showReceiveGoodsDialog(po),
+                              ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              icon: const Icon(Icons.edit_note_rounded, color: AppColors.brandPrimary),
+                              tooltip: 'تعديل أمر الشراء',
+                              onPressed: () => _showEditOrderDialog(po),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.print_rounded, color: Colors.blueGrey),
+                              tooltip: 'طباعة الفاتورة / أمر الشراء (A4 PDF)',
+                              onPressed: () => _printPurchaseOrder(po),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGrnStatementView() {
+    return Card(
+      child: _grnNotes.isEmpty
+          ? const Center(child: Text('لا توجد أذون استلام مخزني مسجلة حتى الآن', style: TextStyle(color: Colors.grey)))
+          : ListView.separated(
+              itemCount: _grnNotes.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, idx) {
+                final grn = _grnNotes[idx];
+                final receiptNo = grn['receipt_number'] as String? ?? '';
+                final supplierName = grn['supplier_name'] as String? ?? 'مورد غير محدد';
+                final warehouseName = grn['warehouse_name'] as String? ?? 'المخزن الرئيسي';
+                final totalCost = ((grn['total_cost'] as int? ?? 0) / 100.0).toStringAsFixed(2);
+                final date = grn['receipt_date'] as String? ?? '';
+                final receiver = grn['receiver_name'] as String? ?? 'مسؤول المستودع';
+
+                return ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFE0F2F1),
+                    child: Icon(Icons.inventory_2_rounded, color: Colors.teal),
+                  ),
+                  title: Row(
+                    children: [
+                      Text('إذن توريد: $receiptNo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(width: 10),
+                      Text('• المورد: $supplierName', style: const TextStyle(fontSize: 12)),
+                      const Spacer(),
+                      Text('$totalCost ${PrinterService.defaultCurrency}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+                    ],
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Text('المستودع: $warehouseName', style: const TextStyle(fontSize: 11)),
+                        const SizedBox(width: 16),
+                        Text('المستلم: $receiver', style: const TextStyle(fontSize: 11)),
+                        const SizedBox(width: 16),
+                        Text('التاريخ: $date', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

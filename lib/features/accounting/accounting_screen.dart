@@ -120,10 +120,25 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                 ],
               ),
               const Spacer(),
-              ElevatedButton.icon(
-                onPressed: () => _showAddAccountDialog(context, repo, companyId),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('إضافة حساب جديد'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => _showReceiptVoucherDialog(context, repo, companyId),
+                    icon: const Icon(Icons.input_rounded, size: 18),
+                    label: const Text('سند قبض / إيداع إيجار وإيراد'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => _showAddAccountDialog(context, repo, companyId),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('إضافة حساب جديد'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -136,6 +151,8 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                 itemBuilder: (context, index) {
                   final acc = filtered[index];
                   final balance = acc.currentBalance / 100.0;
+                  final isSystem = repo.isSystemAccount(acc.code);
+
                   return ListTile(
                     leading: Container(
                       width: 50,
@@ -153,18 +170,51 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                         ),
                       ),
                     ),
-                    title: Text(acc.nameAr, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    title: Row(
+                      children: [
+                        Text(acc.nameAr, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        if (isSystem)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.lock_rounded, size: 11, color: Colors.blueGrey),
+                                SizedBox(width: 3),
+                                Text('حساب أساسي', style: TextStyle(fontSize: 10, color: Colors.blueGrey, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
                     subtitle: Text(
                       '${acc.nameEn ?? ''} | النوع: ${acc.accountType.labelAr} (${acc.accountType.isDebitNormal ? 'طبيعة مدينة' : 'طبيعة دائنة'})',
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
-                    trailing: Text(
-                      '${balance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: balance < 0 ? AppColors.error : AppColors.brandAccent,
-                      ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${balance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            color: balance < 0 ? AppColors.error : AppColors.brandAccent,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        if (!isSystem)
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger, size: 20),
+                            tooltip: 'حذف الحساب المضاف',
+                            onPressed: () => _confirmDeleteAccount(context, repo, acc),
+                          ),
+                      ],
                     ),
                   );
                 },
@@ -276,6 +326,202 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                 }
               },
               child: const Text('حفظ الحساب'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteAccount(BuildContext context, AccountingRepository repo, Account acc) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever_rounded, color: AppColors.danger),
+            SizedBox(width: 8),
+            Text('تأكيد حذف الحساب المضاف'),
+          ],
+        ),
+        content: Text(
+          'هل ترغب فعلاً في حذف الحساب "${acc.nameAr}" (كود: ${acc.code})؟\n\nتنبيه: لا يمكن حذف الحساب إذا كان يحمل رصيداً مالياً أو توجد قيود مسجلة عليه.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(ctx);
+              try {
+                repo.deleteAccount(acc.id);
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('تم حذف الحساب "${acc.nameAr}" بنجاح'), backgroundColor: AppColors.success),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(e.toString().replaceAll('ArgumentError: ', '')), backgroundColor: AppColors.danger),
+                );
+              }
+            },
+            child: const Text('تأكيد الحذف'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReceiptVoucherDialog(BuildContext context, AccountingRepository repo, String companyId) {
+    final receiptNumber = 'RCT-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
+    final amountCtrl = TextEditingController();
+    final descCtrl = TextEditingController(text: 'إيداع إيجار عقار / متجر لشهر ${DateTime.now().month}-${DateTime.now().year}');
+    final refCtrl = TextEditingController();
+    DateTime voucherDate = DateTime.now();
+
+    final allAccounts = repo.getAccounts(companyId);
+    final cashAccounts = allAccounts.where((a) => a.accountType == AccountType.asset && (a.code == '1010' || a.code == '1020' || a.code.startsWith('10'))).toList();
+    final revAccounts = allAccounts.where((a) => a.accountType == AccountType.revenue || a.accountType == AccountType.liability).toList();
+
+    String debitAccountId = cashAccounts.isNotEmpty ? cashAccounts.first.id : allAccounts.first.id;
+    // Prefer rental revenue account 4030 or rental security 2030 or first revenue
+    String creditAccountId = revAccounts.firstWhere(
+      (a) => a.code == '4030',
+      orElse: () => revAccounts.isNotEmpty ? revAccounts.first : allAccounts.last,
+    ).id;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.input_rounded, color: AppColors.success),
+              SizedBox(width: 8),
+              Text('سند قبض وإيداع إيراد / إيجار جديد', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ],
+          ),
+          content: SizedBox(
+            width: 540,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('رقم السند: $receiptNumber', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('التاريخ: ${DateFormat('yyyy-MM-dd').format(voucherDate)}'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Debit Account (Where money entered: Cash or Bank)
+                  DropdownButtonFormField<String>(
+                    initialValue: debitAccountId,
+                    decoration: const InputDecoration(labelText: 'إيداع إلى حساب (المدين - أين دخل المال؟) *', border: OutlineInputBorder()),
+                    items: cashAccounts.map((a) {
+                      return DropdownMenuItem(value: a.id, child: Text('${a.nameAr} (${a.code})'));
+                    }).toList(),
+                    onChanged: (v) {
+                      if (v != null) setDState(() => debitAccountId = v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Credit Account (Source of revenue: Rent 4030 or Deposit 2030)
+                  DropdownButtonFormField<String>(
+                    initialValue: creditAccountId,
+                    decoration: const InputDecoration(labelText: 'لحساب إيراد / أمانات (الدائن - مقابل ماذا؟) *', border: OutlineInputBorder()),
+                    items: revAccounts.map((a) {
+                      return DropdownMenuItem(value: a.id, child: Text('${a.nameAr} (${a.code})'));
+                    }).toList(),
+                    onChanged: (v) {
+                      if (v != null) setDState(() => creditAccountId = v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Amount
+                  TextFormField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'مبلغ الإيداع بـ (${PrinterService.defaultCurrency}) *',
+                      hintText: '0.00',
+                      border: const OutlineInputBorder(),
+                    ),
+                    onTap: () => amountCtrl.selection = TextSelection(baseOffset: 0, extentOffset: amountCtrl.text.length),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Description
+                  TextFormField(
+                    controller: descCtrl,
+                    decoration: const InputDecoration(labelText: 'بيان وسند الإيداع *', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Reference Number / Cheque
+                  TextFormField(
+                    controller: refCtrl,
+                    decoration: const InputDecoration(labelText: 'رقم الإشعار البنكي / الشيك / المرجع (اختياري)', border: OutlineInputBorder()),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.check_circle_outline, size: 18),
+              label: const Text('ترحيل سند القبض والإيداع فوراً'),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: Colors.white),
+              onPressed: () {
+                final amount = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+                if (amount <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يرجى إدخال مبلغ صحيح')));
+                  return;
+                }
+                if (descCtrl.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يرجى كتابة بيان السند')));
+                  return;
+                }
+
+                try {
+                  final db = ref.read(databaseServiceProvider);
+                  final branchId = db.select('SELECT id FROM branches WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
+                  final userId = db.select('SELECT id FROM users WHERE company_id = ? LIMIT 1', [companyId]).first['id'] as String;
+
+                  repo.postReceiptVoucher(
+                    companyId: companyId,
+                    branchId: branchId,
+                    userId: userId,
+                    receiptNumber: receiptNumber,
+                    voucherDate: voucherDate,
+                    amountCents: (amount * 100).round(),
+                    debitAccountId: debitAccountId,
+                    creditAccountId: creditAccountId,
+                    description: descCtrl.text.trim(),
+                    referenceNumber: refCtrl.text.trim().isEmpty ? null : refCtrl.text.trim(),
+                  );
+
+                  Navigator.pop(ctx);
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('تم ترحيل سند القبض والإيداع $receiptNumber بنجاح'), backgroundColor: AppColors.success),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AppColors.danger));
+                }
+              },
             ),
           ],
         ),

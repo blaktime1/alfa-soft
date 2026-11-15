@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/math/bankers_rounding.dart';
+import '../../core/printing/printer_service.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
@@ -84,9 +85,9 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     final barcodeController = TextEditingController();
     final nameArController = TextEditingController();
     final nameEnController = TextEditingController();
-    final costPriceController = TextEditingController(text: '0.00');
-    final salePriceController = TextEditingController(text: '0.00');
-    final minPriceController = TextEditingController(text: '0.00');
+    final costPriceController = TextEditingController();
+    final salePriceController = TextEditingController();
+    final minPriceController = TextEditingController();
     final reorderLevelController = TextEditingController(text: '10');
 
     bool hasCartonPackaging = false;
@@ -205,8 +206,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               child: TextFormField(
                                 controller: costPriceController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'سعر الشراء / التكلفة (SAR) *'),
-                                validator: (v) => v == null || double.tryParse(v) == null ? 'أدخل رقماً صحيحاً' : null,
+                                decoration: InputDecoration(
+                                  labelText: 'سعر الشراء / التكلفة (${PrinterService.defaultCurrency}) *',
+                                  hintText: '0.00',
+                                ),
+                                onTap: () => costPriceController.selection = TextSelection(baseOffset: 0, extentOffset: costPriceController.text.length),
+                                validator: (v) => v == null || v.trim().isEmpty || double.tryParse(v.trim()) == null ? 'أدخل رقماً صحيحاً' : null,
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -214,8 +219,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               child: TextFormField(
                                 controller: salePriceController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'سعر البيع (تجزئة) (SAR) *'),
-                                validator: (v) => v == null || double.tryParse(v) == null ? 'أدخل رقماً صحيحاً' : null,
+                                decoration: InputDecoration(
+                                  labelText: 'سعر البيع (تجزئة) (${PrinterService.defaultCurrency}) *',
+                                  hintText: '0.00',
+                                ),
+                                onTap: () => salePriceController.selection = TextSelection(baseOffset: 0, extentOffset: salePriceController.text.length),
+                                validator: (v) => v == null || v.trim().isEmpty || double.tryParse(v.trim()) == null ? 'أدخل رقماً صحيحاً' : null,
                               ),
                             ),
                           ],
@@ -227,7 +236,11 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               child: TextFormField(
                                 controller: minPriceController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'أدنى سعر بيع (جملة) (SAR)'),
+                                decoration: InputDecoration(
+                                  labelText: 'أدنى سعر بيع (جملة) (${PrinterService.defaultCurrency})',
+                                  hintText: '0.00',
+                                ),
+                                onTap: () => minPriceController.selection = TextSelection(baseOffset: 0, extentOffset: minPriceController.text.length),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -365,7 +378,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                     final repo = CatalogRepository(db);
                     final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
 
-                    final costDouble = double.parse(costPriceController.text.trim());
+                    final costDouble = double.tryParse(costPriceController.text.trim()) ?? 0.0;
                     final saleDouble = double.parse(salePriceController.text.trim());
                     final minDouble = double.tryParse(minPriceController.text.trim()) ?? 0.0;
                     final reorderInt = int.tryParse(reorderLevelController.text.trim()) ?? 10;
@@ -465,12 +478,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              Text('السعر السابق: ${oldPrice.toStringAsFixed(2)} SAR',
+                              Text('السعر السابق: ${oldPrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                                   style: const TextStyle(color: AppColors.lightTextSecondary)),
                               const SizedBox(width: 12),
                               const Icon(Icons.arrow_forward_rounded, size: 14, color: AppColors.brandPrimary),
                               const SizedBox(width: 12),
-                              Text('السعر الجديد: ${newPrice.toStringAsFixed(2)} SAR',
+                              Text('السعر الجديد: ${newPrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                                   style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.successText)),
                             ],
                           ),
@@ -690,11 +703,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               child: TextFormField(
                                 controller: costPriceController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'سعر الشراء / التكلفة (SAR) *',
-                                  prefixIcon: Icon(Icons.shield_outlined, size: 18, color: AppColors.brandGoldDark),
+                                decoration: InputDecoration(
+                                  labelText: 'سعر الشراء / التكلفة (${PrinterService.defaultCurrency}) *',
+                                  prefixIcon: const Icon(Icons.shield_outlined, size: 18, color: AppColors.brandGoldDark),
                                 ),
-                                validator: (v) => v == null || double.tryParse(v) == null ? 'أدخل رقماً صحيحاً' : null,
+                                onTap: () => costPriceController.selection = TextSelection(baseOffset: 0, extentOffset: costPriceController.text.length),
+                                validator: (v) => v == null || v.trim().isEmpty || double.tryParse(v.trim()) == null ? 'أدخل رقماً صحيحاً' : null,
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -702,8 +716,9 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               child: TextFormField(
                                 controller: salePriceController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'سعر البيع (تجزئة) (SAR) *'),
-                                validator: (v) => v == null || double.tryParse(v) == null ? 'أدخل رقماً صحيحاً' : null,
+                                decoration: InputDecoration(labelText: 'سعر البيع (تجزئة) (${PrinterService.defaultCurrency}) *'),
+                                onTap: () => salePriceController.selection = TextSelection(baseOffset: 0, extentOffset: salePriceController.text.length),
+                                validator: (v) => v == null || v.trim().isEmpty || double.tryParse(v.trim()) == null ? 'أدخل رقماً صحيحاً' : null,
                               ),
                             ),
                           ],
@@ -715,7 +730,8 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               child: TextFormField(
                                 controller: minPriceController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(labelText: 'أدنى سعر بيع (جملة) (SAR)'),
+                                decoration: InputDecoration(labelText: 'أدنى سعر بيع (جملة) (${PrinterService.defaultCurrency})'),
+                                onTap: () => minPriceController.selection = TextSelection(baseOffset: 0, extentOffset: minPriceController.text.length),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -1020,9 +1036,15 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                           child: TextFormField(
                             controller: controllers[wh.id],
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(
+                            onTap: () {
+                              final ctrl = controllers[wh.id];
+                              if (ctrl != null) {
+                                ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length);
+                              }
+                            },
+                            decoration: InputDecoration(
                               labelText: 'سعر البيع',
-                              suffixText: 'SAR',
+                              suffixText: PrinterService.defaultCurrency,
                             ),
                           ),
                         ),
@@ -1231,15 +1253,15 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text('${p.costPrice.toStringAsFixed(2)} SAR'),
+                                    Text('${p.costPrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
                                     const SizedBox(width: 4),
                                     const Icon(Icons.lock_outline_rounded, size: 13, color: AppColors.brandGoldDark),
                                   ],
                                 ),
                               ),
-                              DataCell(Text('${p.salePrice.toStringAsFixed(2)} SAR',
+                              DataCell(Text('${p.salePrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                                   style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandAccent))),
-                              DataCell(Text('${p.minSalePrice.toStringAsFixed(2)} SAR')),
+                              DataCell(Text('${p.minSalePrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}')),
                               DataCell(Text('${p.reorderLevel}')),
                               DataCell(Chip(
                                 label: Text(p.isActive ? 'نشط' : 'معطل', style: const TextStyle(fontSize: 11)),
