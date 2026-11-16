@@ -7,6 +7,7 @@ import '../../core/theme/app_colors.dart';
 import '../../domain/entities/accounting.dart';
 import '../../data/repositories/accounting_repository.dart';
 import '../../core/widgets/operation_success_dialog.dart';
+import '../../core/providers/license_provider.dart';
 
 class AccountingScreen extends ConsumerStatefulWidget {
   const AccountingScreen({super.key});
@@ -642,6 +643,17 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   }
 
   void _showEditVoucherDialog(BuildContext context, AccountingRepository repo, _UnifiedVoucherEntry v) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن تعديل السندات.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (v.status == 'REVERSED' || v.status == 'CANCELLED') {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يمكن تعديل سند ملغي ومعكوس')));
       return;
@@ -708,6 +720,17 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   }
 
   void _confirmVoidVoucher(BuildContext context, AccountingRepository repo, _UnifiedVoucherEntry v) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن إلغاء أو عكس السندات.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (v.status == 'REVERSED' || v.status == 'CANCELLED') {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('هذا السند ملغي ومعكوس مسبقاً')));
       return;
@@ -953,6 +976,17 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   }
 
   void _showAddAccountDialog(BuildContext context, AccountingRepository repo, String companyId) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن إضافة حسابات جديدة بدليل الحسابات.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final codeCtrl = TextEditingController();
     final nameArCtrl = TextEditingController();
     final nameEnCtrl = TextEditingController();
@@ -1073,6 +1107,17 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   }
 
   void _showReceiptVoucherDialog(BuildContext context, AccountingRepository repo, String companyId) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط لانتهاء الترخيص أو العبث بالتوقيت. لا يمكن إصدار سندات قبض جديدة حتى تجديد الترخيص.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final receiptNumber = 'RCT-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}';
     final amountCtrl = TextEditingController();
     final descCtrl = TextEditingController(text: 'إيداع إيجار عقار / متجر لشهر ${DateTime.now().month}-${DateTime.now().year}');
@@ -1643,6 +1688,17 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   }
 
   void _handleReverseJournalEntry(JournalEntry entry, AccountingRepository repo) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن عكس أو إلغاء القيود اليومية.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final reasonCtrl = TextEditingController(text: 'عكس وإلغاء قيد تسوية');
     showDialog(
       context: context,
@@ -1699,6 +1755,17 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   }
 
   void _showNewExpenseVoucherDialog(BuildContext context, AccountingRepository repo, String companyId) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن تسجيل سندات صرف ومصروفات جديدة.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     String selectedCategory = 'RENT';
     String paymentMethod = 'CASH';
     final amountCtrl = TextEditingController();
@@ -1942,6 +2009,17 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
   }
 
   void _showNewVoucherDialog(BuildContext context, AccountingRepository repo, String companyId) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن إنشاء قيود يومية جديدة.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final accounts = repo.getAccounts(companyId);
     final narrationCtrl = TextEditingController(text: 'قيد يومية تسوية يدوية');
     final lines = <Map<String, dynamic>>[

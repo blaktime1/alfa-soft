@@ -16,6 +16,7 @@ import '../../domain/entities/partner.dart';
 import '../../domain/entities/catalog.dart';
 import '../../domain/entities/organization.dart';
 import '../../core/widgets/operation_success_dialog.dart';
+import '../../core/providers/license_provider.dart';
 
 class PurchasesScreen extends ConsumerStatefulWidget {
   const PurchasesScreen({super.key});
@@ -104,6 +105,17 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
   }
 
   void _showCreateOrderDialog() {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط لانتهاء الترخيص أو العبث بالتوقيت. لا يمكن إنشاء أوامر شراء حتى تجديد الترخيص.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (_suppliers.isEmpty || _products.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('يرجى تسجيل مورد وصنف واحد على الأقل أولاً')),
@@ -367,6 +379,17 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
   }
 
   void _showEditOrderDialog(PurchaseOrderEntity po) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن تعديل أوامر الشراء.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final db = ref.read(databaseServiceProvider);
     final ps = PrinterService(db);
     final isTaxEnabled = ps.isTaxEnabled();
@@ -610,6 +633,17 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
   }
 
   void _showDirectPurchaseInvoiceDialog() {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن إصدار فواتير شراء جديدة.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (_suppliers.isEmpty || _products.isEmpty || _warehouses.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('يرجى تسجيل مورد ومستودع وصنف واحد على الأقل أولاً')),
@@ -1017,6 +1051,17 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
   }
 
   void _showReceiveGoodsDialog(PurchaseOrderEntity po) {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن توريد أو استلام بضاعة في المخازن.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (_warehouses.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('يرجى إنشاء مستودع واحد على الأقل أولاً')),

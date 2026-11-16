@@ -8,6 +8,7 @@ import '../../domain/entities/enterprise.dart';
 import '../../data/repositories/enterprise_repository.dart';
 import '../../data/repositories/accounting_repository.dart';
 import '../../core/widgets/operation_success_dialog.dart';
+import '../../core/providers/license_provider.dart';
 
 class EnterpriseScreen extends ConsumerStatefulWidget {
   const EnterpriseScreen({super.key});
@@ -87,6 +88,17 @@ class _EnterpriseScreenState extends ConsumerState<EnterpriseScreen> with Single
   }
 
   Future<void> _handleGeneratePayroll() async {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط لانتهاء الترخيص أو العبث بالتوقيت. لا يمكن توليد مسيرات رواتب جديدة حتى تجديد الترخيص.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final companyId = _getCompanyId();
     final month = DateFormat('yyyy-MM').format(DateTime.now());
 
@@ -185,6 +197,17 @@ class _EnterpriseScreenState extends ConsumerState<EnterpriseScreen> with Single
   }
 
   void _showRecordAdvanceDialog() {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن صرف سلف موظفين جديدة.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (_employees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('يرجى تسجيل موظف واحد على الأقل قبل صرف السلف'), backgroundColor: AppColors.error),
@@ -864,6 +887,17 @@ class _EnterpriseScreenState extends ConsumerState<EnterpriseScreen> with Single
   // DIALOGS
   // -------------------------------------------------------------
   void _showCreateEmployeeDialog() {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن تسجيل موظفين جدد.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final codeCtrl = TextEditingController(text: 'EMP-${_employees.length + 101}');
     final nameCtrl = TextEditingController();
     final nationalIdCtrl = TextEditingController(text: '1098765432');
@@ -931,6 +965,17 @@ class _EnterpriseScreenState extends ConsumerState<EnterpriseScreen> with Single
   }
 
   void _showCreateCostCenterDialog() {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('النظام يعمل في وضع الأرشيف والقراءة فقط. لا يمكن إنشاء مراكز تكلفة جديدة.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final codeCtrl = TextEditingController(text: 'CC-${_costCenters.length + 101}');
     final nameArCtrl = TextEditingController();
     final nameEnCtrl = TextEditingController();

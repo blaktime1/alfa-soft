@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/providers/license_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../pos/pos_screen.dart';
@@ -262,6 +263,7 @@ class _MainShellState extends ConsumerState<MainShell> with WindowListener {
     final currentLocale = ref.watch(localeProvider);
     final isArabic = currentLocale.languageCode == 'ar';
     final currentUser = ref.watch(currentUserProvider);
+    final license = ref.watch(licenseInfoProvider);
 
     // If POS is selected, open dedicated fullscreen checkout mode based on style preference
     if (_activeSection == ShellNavSection.pos) {
@@ -449,6 +451,51 @@ class _MainShellState extends ConsumerState<MainShell> with WindowListener {
           Expanded(
             child: Column(
               children: [
+                // Read-Only Archive Mode Warning Banner (Graceful degradation upon license expiry)
+                if (license.isReadOnlyArchive)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      border: const Border(bottom: BorderSide(color: Color(0xFFF59E0B))),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.amber.withValues(alpha: 0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Color(0xFFB45309), size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'تنبيه: انتهت فترة صلاحية ترخيص النظام (${license.validationError ?? "انتهت فترة الاشتراك"}). يعمل النظام حالياً في وضع الأرشفة والمطالعة (Read-Only). جميع بياناتك وتقاريرك محفوظة ويمكنك استعراضها وطباعتها، ولا يمكن حفظ فواتير أو حركات جديدة حتى تجديد الترخيص.',
+                            style: const TextStyle(color: Color(0xFF92400E), fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _activeSection = ShellNavSection.settings;
+                            });
+                          },
+                          icon: const Icon(Icons.vpn_key_rounded, size: 16),
+                          label: const Text('تجديد الترخيص الآن', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFD97706),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // Top Application Bar
                 Container(
                   height: 64,

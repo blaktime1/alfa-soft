@@ -17,6 +17,7 @@ import '../../data/repositories/partner_repository.dart';
 import '../../data/repositories/organization_repository.dart';
 import '../../data/repositories/sales_invoice_repository.dart';
 import '../../core/widgets/operation_success_dialog.dart';
+import '../../core/providers/license_provider.dart';
 
 class StandardPosItemRow {
   String productId;
@@ -610,6 +611,12 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
   /// "حفظ" Button: Saves/Executes payment & invoice creation or update
   Future<void> _handleSaveInvoice() async {
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      _showSnack('عفواً، لا يمكن إنشاء أو حفظ فواتير جديدة أثناء انتهاء صلاحية الترخيص. النظام في وضع الأرشفة والمطالعة فقط. يرجى تجديد الترخيص.', isError: true);
+      return;
+    }
+
     final validRows = _rows.where((r) => r.quantity > 0 && r.productId.isNotEmpty).toList();
     if (validRows.isEmpty) {
       _showSnack('يرجى إضافة صنف واحد على الأقل بكمية صالحة', isError: true);

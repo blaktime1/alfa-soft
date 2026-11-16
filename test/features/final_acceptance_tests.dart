@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:cryptography/cryptography.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:alfa_soft/data/local/database_service.dart';
 import 'package:alfa_soft/data/repositories/organization_repository.dart';
@@ -98,13 +97,8 @@ void main() {
 
     // 3 & 4. Valid & Offline License Activation
     test('Criteria 3 & 4: Cryptographic Ed25519 offline license activation', () async {
-      final keyPair = await Ed25519().newKeyPair();
-      final pubKey = await keyPair.extractPublicKey();
-      final pubKeyHex = pubKey.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-
       final hwid = licenseService.getMachineHardwareId();
       final licenseString = await licenseService.issueLicense(
-        vendorKeyPair: keyPair,
         licenseeName: 'الفا الشاملة',
         hardwareId: hwid,
         taxNumber: '310999999900003',
@@ -114,7 +108,6 @@ void main() {
       final result = await licenseService.validateLicense(
         rawLicensePackage: licenseString,
         localHardwareId: hwid,
-        trustedPublicKeyHex: pubKeyHex,
       );
 
       expect(result.isValid, isTrue);
@@ -557,14 +550,9 @@ void main() {
     });
 
     // 25. License Expiration Handling
-    test('Criterion 25: Expired license is strictly rejected', () async {
-      final keyPair = await Ed25519().newKeyPair();
-      final pubKey = await keyPair.extractPublicKey();
-      final pubKeyHex = pubKey.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-
+    test('Criterion 25: Expired license transitions into Read-Only Archive mode', () async {
       final hwid = licenseService.getMachineHardwareId();
       final expiredLicense = await licenseService.issueLicense(
-        vendorKeyPair: keyPair,
         licenseeName: 'منشأة منتهية',
         hardwareId: hwid,
         taxNumber: '310',
@@ -575,19 +563,19 @@ void main() {
       final info = await licenseService.validateLicense(
         rawLicensePackage: expiredLicense,
         localHardwareId: hwid,
-        trustedPublicKeyHex: pubKeyHex,
       );
 
-      expect(info.isValid, isFalse);
-      expect(info.validationError, contains('انتهت صلاحية هذا الترخيص'));
+      expect(info.isExpired, isTrue);
+      expect(info.isReadOnlyArchive, isTrue);
+      expect(info.validationError, contains('انتهت فترة الترخيص'));
     });
 
     // 26 & 27. Migration and Data Preservation
     test('Criteria 26 & 27: Schema migrations preserve existing records across version updates', () {
       final migrations = db.select('SELECT version, name FROM schema_migrations ORDER BY version ASC');
-      expect(migrations.length, equals(5));
+      expect(migrations.length, equals(11));
       expect(migrations[0]['version'], equals(1));
-      expect(migrations[4]['version'], equals(5));
+      expect(migrations[10]['version'], equals(11));
 
       // Verify PRAGMA integrity
       expect(db.checkIntegrity(), isTrue);

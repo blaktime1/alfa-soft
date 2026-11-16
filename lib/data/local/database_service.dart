@@ -10,6 +10,7 @@ import 'migrations/m007_packaging_and_warehouse_pricing_schema.dart';
 import 'migrations/m008_invoice_management_and_pos_preferences_schema.dart';
 import 'migrations/m009_salary_advances_and_expenses_schema.dart';
 import 'migrations/m010_schema_fixes.dart';
+import 'migrations/m011_licensing_and_security_schema.dart';
 
 class DatabaseService {
   final Database _db;
@@ -73,6 +74,7 @@ class DatabaseService {
       const M008InvoiceManagementAndPosPreferencesSchema(),
       const M009SalaryAdvancesAndExpensesSchema(),
       const M010SchemaFixes(),
+      const M011LicensingAndSecuritySchema(),
     ]..sort((a, b) => a.version.compareTo(b.version));
 
     for (final migration in availableMigrations) {

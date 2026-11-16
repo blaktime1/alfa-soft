@@ -13,6 +13,8 @@ import 'data/local/database_service.dart';
 import 'features/auth/login_screen.dart';
 import 'features/setup/first_run_wizard.dart';
 import 'features/shell/main_shell.dart';
+import 'features/licensing/license_activation_screen.dart';
+import 'core/providers/license_provider.dart';
 import 'core/printing/printer_service.dart';
 
 void main() async {
@@ -138,6 +140,19 @@ class _AppRootDeciderState extends ConsumerState<_AppRootDecider> {
       );
     }
 
+    final license = ref.watch(licenseInfoProvider);
+
+    // 1. Hardware Fingerprint & Cryptographic License Verification
+    if (!license.isValid) {
+      return LicenseActivationScreen(
+        onActivated: () {
+          ref.read(licenseInfoProvider.notifier).refresh();
+          _checkSetupState();
+        },
+      );
+    }
+
+    // 2. Initial Setup Wizard (Runs once on first installation)
     if (!_hasCompany) {
       return FirstRunWizard(
         onCompleted: () {
@@ -148,11 +163,13 @@ class _AppRootDeciderState extends ConsumerState<_AppRootDecider> {
       );
     }
 
+    // 3. User Authentication
     final currentUser = ref.watch(currentUserProvider);
     if (currentUser == null) {
       return const LoginScreen();
     }
 
+    // 4. Main Application Shell
     return const MainShell();
   }
 }

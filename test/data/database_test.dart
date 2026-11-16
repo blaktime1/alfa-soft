@@ -64,11 +64,13 @@ void main() {
         'warehouse_product_prices',
         'salary_advances',
         'expense_vouchers',
+        'system_licenses',
+        'system_security_clocks',
       ]));
 
-      // Verify migration table recorded all 10 migrations
+      // Verify migration table recorded all 11 migrations
       final migrations = dbService.select('SELECT version FROM schema_migrations ORDER BY version ASC');
-      expect(migrations.length, equals(10));
+      expect(migrations.length, equals(11));
     });
 
     test('Foreign key constraints are strictly enforced', () {

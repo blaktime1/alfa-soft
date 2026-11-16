@@ -4,11 +4,41 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:alfa_soft/main.dart';
 import 'package:alfa_soft/core/providers/app_state_provider.dart';
 import 'package:alfa_soft/core/providers/auth_provider.dart';
+import 'package:alfa_soft/core/licensing/license_service.dart';
 import 'package:alfa_soft/data/local/database_service.dart';
 import 'package:alfa_soft/data/repositories/user_repository.dart';
 
+Future<void> _seedValidLicense(DatabaseService dbService) async {
+  final licenseService = LicenseService();
+  final hwid = licenseService.getMachineHardwareId();
+  final pkg = await licenseService.issueLicense(
+    licenseeName: 'شركة ألفا للتجارة',
+    hardwareId: hwid,
+    taxNumber: '300012345600003',
+    tier: LicenseTier.enterprise,
+    planType: 'LIFETIME',
+    maxBranches: 99,
+    maxTerminals: 99,
+    modules: const [
+      'POS',
+      'INVENTORY',
+      'PURCHASES',
+      'ACCOUNTING',
+      'CRM',
+      'REPORTS',
+      'ENTERPRISE',
+      'SYNC',
+      'SETTINGS',
+    ],
+  );
+  await licenseService.installLicense(
+    db: dbService.rawDb,
+    rawLicensePackage: pkg,
+  );
+}
+
 void main() {
-  testWidgets('ALFA SOFT app boots into FirstRunWizard when empty', (WidgetTester tester) async {
+  testWidgets('ALFA SOFT app boots into LicenseActivationScreen when unlicensed', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -27,19 +57,47 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('ALFA SOFT — معالج التهيئة الأولية'), findsOneWidget);
-    expect(find.text('1. بيانات المنشأة التجارية'), findsOneWidget);
+    expect(find.text('كود بصمة عتاد هذا الجهاز (Hardware Fingerprint):'), findsOneWidget);
+    expect(find.text('تفعيل وترخيص النظام الآن'), findsOneWidget);
+    expect(find.textContaining('781235491'), findsOneWidget);
 
     dbService.dispose();
   });
 
-  testWidgets('ALFA SOFT app prompts for LoginScreen on launch when company exists', (WidgetTester tester) async {
+  testWidgets('ALFA SOFT app boots into FirstRunWizard when licensed and empty', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final dbService = DatabaseService.inMemory();
+    await _seedValidLicense(dbService);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseServiceProvider.overrideWithValue(dbService),
+        ],
+        child: const AlfaSoftApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('ALFA SOFT — معالج التهيئة الأولية'), findsOneWidget);
+    expect(find.text('1. بيانات المنشأة التجارية'), findsOneWidget);
+
+    dbService.dispose();
+  });
+
+  testWidgets('ALFA SOFT app prompts for LoginScreen on launch when company exists and licensed', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final dbService = DatabaseService.inMemory();
+    await _seedValidLicense(dbService);
 
     // Seed company & user
     dbService.execute('''
@@ -87,6 +145,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final dbService = DatabaseService.inMemory();
+    await _seedValidLicense(dbService);
 
     dbService.execute('''
       INSERT INTO companies (id, legal_name, trade_name, tax_number, currency_code, is_active)

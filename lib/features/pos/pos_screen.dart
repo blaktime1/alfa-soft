@@ -12,6 +12,7 @@ import 'package:printing/printing.dart';
 import '../../core/printing/printer_service.dart';
 import '../../core/printing/pdf_invoice_generator.dart';
 import '../../core/widgets/operation_success_dialog.dart';
+import '../../core/providers/license_provider.dart';
 
 class CartItem {
   final String productId;
@@ -284,6 +285,17 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     int advancePaidCents = 0,
   }) {
     if (_cart.isEmpty) return;
+
+    final license = ref.read(licenseInfoProvider);
+    if (license.isReadOnlyArchive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('عفواً، لا يمكن إنشاء فواتير جديدة أثناء انتهاء صلاحية الترخيص. النظام في وضع الأرشفة والمطالعة فقط. يرجى تجديد الترخيص.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isProcessing = true);
     final db = ref.read(databaseServiceProvider);
