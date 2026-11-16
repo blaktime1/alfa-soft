@@ -33,6 +33,8 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
   String _devPlanType = 'LIFETIME'; // 'LIFETIME', 'ANNUAL', 'SEMI_ANNUAL', 'MONTHLY', 'CUSTOM'
   String? _generatedLicenseOutput;
   bool _isGenerating = false;
+  bool _isDeveloperUnlocked = false;
+  static const String developerMasterPasscode = 'Alfa@7812';
 
   static const String developerPhone = '781235491';
   static const String developerInstagram = '@mohlabss';
@@ -40,9 +42,90 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _hardwareId = _licenseService.getMachineHardwareId();
     _devHwidCtrl.text = _hardwareId;
+  }
+
+  void _promptDeveloperUnlock() {
+    if (_isDeveloperUnlocked) {
+      setState(() {
+        _isDeveloperUnlocked = false;
+        _tabController.dispose();
+        _tabController = TabController(length: 2, vsync: this);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم قفل بوابة المطور بنجاح.')),
+      );
+      return;
+    }
+
+    final passCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.lock_person_rounded, color: AppColors.brandPrimary),
+            SizedBox(width: 8),
+            Text('منطقة المطور الحصرية'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'أدخل كلمة مرور المطور لتفعيل بوابة إصدار التراخيص وتوليد المفاتيح المشفرة:',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passCtrl,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'رمز المطور السري (Developer Passcode)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.key_rounded),
+              ),
+              onSubmitted: (val) => _verifyDevPass(ctx, passCtrl.text),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () => _verifyDevPass(ctx, passCtrl.text),
+            child: const Text('تحقق وفك القفل'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _verifyDevPass(BuildContext ctx, String entered) {
+    if (entered.trim() == developerMasterPasscode) {
+      Navigator.pop(ctx);
+      setState(() {
+        _isDeveloperUnlocked = true;
+        _tabController.dispose();
+        _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم التحقق بنجاح! تم فك قفل بوابة إصدار التراخيص.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('رمز المرور غير صحيح! تم رفض الوصول لمنطقة المطور.'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
   }
 
   @override
@@ -209,13 +292,24 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('إدارة التراخيص وبوابة المطور — Cryptographic Licensing Center'),
+        title: const Text('إدارة التراخيص — Cryptographic Licensing Center'),
+        actions: [
+          IconButton(
+            tooltip: _isDeveloperUnlocked ? 'قفل بوابة المطور' : 'فك قفل بوابة المطور (Developer Mode)',
+            icon: Icon(
+              _isDeveloperUnlocked ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+              color: _isDeveloperUnlocked ? Colors.amber : null,
+            ),
+            onPressed: _promptDeveloperUnlock,
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.verified_user_rounded), text: 'حالة الترخيص الحالي (Active License)'),
-            Tab(icon: Icon(Icons.key_rounded), text: 'بوابة المطور ومولد المفاتيح (Key Generator)'),
-            Tab(icon: Icon(Icons.featured_play_list_rounded), text: 'مصفوفة الباقات والميزات (Tiers Matrix)'),
+          tabs: [
+            const Tab(icon: Icon(Icons.verified_user_rounded), text: 'حالة الترخيص الحالي (Active License)'),
+            if (_isDeveloperUnlocked)
+              const Tab(icon: Icon(Icons.key_rounded), text: 'بوابة المطور ومولد المفاتيح (Key Generator)'),
+            const Tab(icon: Icon(Icons.featured_play_list_rounded), text: 'مصفوفة الباقات والميزات (Tiers Matrix)'),
           ],
         ),
       ),
@@ -223,7 +317,8 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
         controller: _tabController,
         children: [
           _buildActiveLicenseTab(context),
-          _buildKeyGeneratorTab(context),
+          if (_isDeveloperUnlocked)
+            _buildKeyGeneratorTab(context),
           _buildTiersMatrixTab(context),
         ],
       ),
