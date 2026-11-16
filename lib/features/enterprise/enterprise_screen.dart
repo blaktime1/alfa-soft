@@ -7,6 +7,7 @@ import '../../core/printing/printer_service.dart';
 import '../../domain/entities/enterprise.dart';
 import '../../data/repositories/enterprise_repository.dart';
 import '../../data/repositories/accounting_repository.dart';
+import '../../core/widgets/operation_success_dialog.dart';
 
 class EnterpriseScreen extends ConsumerStatefulWidget {
   const EnterpriseScreen({super.key});
@@ -98,11 +99,12 @@ class _EnterpriseScreenState extends ConsumerState<EnterpriseScreen> with Single
       await _loadData();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('تم توليد مسير رواتب شهر $month بنجاح! الإجمالي الصافي: ${(run.totalNet / 100).toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
-            backgroundColor: AppColors.success,
-          ),
+        OperationSuccessDialog.show(
+          context: context,
+          title: 'تم توليد مسير الرواتب بنجاح',
+          message: 'تم إعداد مسير رواتب الكوادر والموظفين لشهر $month وحساب الاستقطاعات والبدلات آلياً.',
+          referenceCode: 'شهر $month',
+          amountText: '${(run.totalNet / 100).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
         );
       }
     } catch (e) {
@@ -165,11 +167,12 @@ class _EnterpriseScreenState extends ConsumerState<EnterpriseScreen> with Single
       await _loadData();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('تم اعتماد وترحيل مسير الرواتب إلى دفتر الأستاذ العام بنجاح! رقم القيد: ${entry.entryNumber}'),
-            backgroundColor: AppColors.success,
-          ),
+        OperationSuccessDialog.show(
+          context: context,
+          title: 'تم اعتماد وصرف مسير الرواتب بنجاح',
+          message: 'تم ترحيل مسير الرواتب لدفتر اليومية وتغذية حسابات الموظفين بالقيود المزدوجة.',
+          referenceCode: entry.entryNumber,
+          amountText: '${((_lastPayrollRun?.totalNet ?? 0) / 100).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
         );
       }
     } catch (e) {
@@ -365,15 +368,15 @@ class _EnterpriseScreenState extends ConsumerState<EnterpriseScreen> with Single
 
                     nav.pop();
                     await _loadData();
+                    if (!mounted) return;
 
-                    if (mounted) {
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: Text('تم صرف السلفة رقم ${advance.advanceNumber} للموظف ${advance.employeeName} بنجاح وقيدها دفترياً'),
-                          backgroundColor: AppColors.success,
-                        ),
-                      );
-                    }
+                    OperationSuccessDialog.show(
+                      context: context,
+                      title: 'تم صرف وقيد السلفة للموظف بنجاح',
+                      message: 'تم تسجيل سند سلفة الموظف وترحيل أثرها المحاسبي واستقطاعها من راتب شهر $repaymentMonth.',
+                      referenceCode: advance.advanceNumber,
+                      amountText: '${amount.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                    );
                   } catch (e) {
                     if (mounted) {
                       messenger.showSnackBar(

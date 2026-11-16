@@ -16,6 +16,7 @@ import '../../data/repositories/catalog_repository.dart';
 import '../../data/repositories/partner_repository.dart';
 import '../../data/repositories/organization_repository.dart';
 import '../../data/repositories/sales_invoice_repository.dart';
+import '../../core/widgets/operation_success_dialog.dart';
 
 class StandardPosItemRow {
   String productId;
@@ -178,27 +179,43 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         if (_branches.isNotEmpty) {
           final mainBranch = _branches.firstWhere((b) => b.isMain, orElse: () => _branches.first);
           _selectedBranchId = mainBranch.id;
-          _warehouses = orgRepo.getWarehouses(_selectedBranchId!);
         }
 
-        // Guarantee at least one valid warehouse exists to prevent NOT NULL constraint crashes
-        if (_warehouses.isEmpty) {
-          try {
-            final allWh = db.select('SELECT id, branch_id, code, name, is_active FROM warehouses WHERE is_active = 1');
-            if (allWh.isNotEmpty) {
-              _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
-            } else {
-              final defaultBranchId = _selectedBranchId ?? (_branches.isNotEmpty ? _branches.first.id : 'br_default');
-              final createdWh = orgRepo.createWarehouse(
-                branchId: defaultBranchId,
-                code: 'WH-01',
-                name: 'المستودع الرئيسي',
-              );
-              _warehouses = [createdWh];
-            }
-          } catch (e) {
-            debugPrint('Error getting warehouses fallback: $e');
+        // Load all active warehouses, prioritizing warehouses with available stock and branch alignment
+        try {
+          final whQuery = db.select('''
+            SELECT w.id, w.branch_id, w.code,
+                   CASE 
+                     WHEN w.branch_id != ? THEN w.name || ' (' || COALESCE(b.name, 'فرع آخر') || ')'
+                     ELSE w.name 
+                   END as display_name,
+                   w.name as original_name,
+                   w.is_active,
+                   COALESCE((SELECT SUM(quantity) FROM inventory_balances WHERE warehouse_id = w.id), 0) as total_stock
+            FROM warehouses w
+            LEFT JOIN branches b ON w.branch_id = b.id
+            WHERE w.is_active = 1
+            ORDER BY total_stock DESC, (w.branch_id = ?) DESC, w.code ASC
+          ''', [_selectedBranchId ?? '', _selectedBranchId ?? '']);
+          if (whQuery.isNotEmpty) {
+            _warehouses = whQuery.map((r) => WarehouseEntity(
+              id: r['id'] as String,
+              branchId: r['branch_id'] as String,
+              code: r['code'] as String,
+              name: r['display_name'] as String,
+              isActive: (r['is_active'] as int) == 1,
+            )).toList();
+          } else {
+            final defaultBranchId = _selectedBranchId ?? (_branches.isNotEmpty ? _branches.first.id : 'br_default');
+            final createdWh = orgRepo.createWarehouse(
+              branchId: defaultBranchId,
+              code: 'WH-01',
+              name: 'المستودع الرئيسي',
+            );
+            _warehouses = [createdWh];
           }
+        } catch (e) {
+          debugPrint('Error getting warehouses in POS: $e');
         }
         if (_warehouses.isNotEmpty) {
           _selectedWarehouseId = _warehouses.first.id;
@@ -300,17 +317,67 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
   }
 
   int _getWarehouseStock(String productId) {
-    if (_selectedWarehouseId == null) return 0;
     try {
       final db = ref.read(databaseServiceProvider);
-      final res = db.select(
-        'SELECT quantity FROM inventory_balances WHERE warehouse_id = ? AND product_id = ? LIMIT 1',
-        [_selectedWarehouseId, productId],
+      if (_selectedWarehouseId != null && _selectedWarehouseId!.isNotEmpty) {
+        final res = db.select(
+          'SELECT quantity FROM inventory_balances WHERE warehouse_id = ? AND product_id = ? LIMIT 1',
+          [_selectedWarehouseId, productId],
+        );
+        if (res.isNotEmpty) {
+          final q = (res.first['quantity'] as num?)?.toInt() ?? 0;
+          if (q > 0) return q;
+        }
+      }
+      final allRes = db.select(
+        'SELECT COALESCE(SUM(quantity), 0) as total FROM inventory_balances WHERE product_id = ?',
+        [productId],
       );
-      return res.isNotEmpty ? (res.first['quantity'] as int) : 0;
+      return allRes.isNotEmpty ? ((allRes.first['total'] as num?)?.toInt() ?? 0) : 0;
     } catch (_) {
       return 0;
     }
+  }
+
+  Map<String, dynamic> _getProductStockDetails(String productId) {
+    int localStock = 0;
+    int totalStock = 0;
+    String? otherWarehouseName;
+
+    try {
+      final db = ref.read(databaseServiceProvider);
+      if (_selectedWarehouseId != null && _selectedWarehouseId!.isNotEmpty) {
+        final res = db.select(
+          'SELECT quantity FROM inventory_balances WHERE warehouse_id = ? AND product_id = ? LIMIT 1',
+          [_selectedWarehouseId, productId],
+        );
+        if (res.isNotEmpty) {
+          localStock = (res.first['quantity'] as num?)?.toInt() ?? 0;
+        }
+      }
+
+      final allRes = db.select('''
+        SELECT ib.quantity, w.name as warehouse_name
+        FROM inventory_balances ib
+        JOIN warehouses w ON ib.warehouse_id = w.id
+        WHERE ib.product_id = ? AND ib.quantity > 0
+        ORDER BY ib.quantity DESC
+      ''', [productId]);
+
+      for (final r in allRes) {
+        totalStock += (r['quantity'] as num?)?.toInt() ?? 0;
+        if (otherWarehouseName == null && r['warehouse_name'] != null) {
+          otherWarehouseName = r['warehouse_name'] as String;
+        }
+      }
+    } catch (_) {}
+
+    return {
+      'localStock': localStock,
+      'totalStock': totalStock,
+      'effectiveStock': localStock > 0 ? localStock : totalStock,
+      'otherWarehouseName': otherWarehouseName,
+    };
   }
 
   // Calculation Getters
@@ -636,6 +703,15 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         );
 
         _showSnack('تم تحديث الفاتورة $_invoiceNumber بنجاح');
+        if (mounted) {
+          OperationSuccessDialog.show(
+            context: context,
+            title: 'تم تعديل الفاتورة بنجاح',
+            message: 'تم تحديث بيانات الفاتورة وتعديل القيود والمخزون بنجاح.',
+            referenceCode: _invoiceNumber,
+            amountText: '${(_grandTotalCents / 100).toStringAsFixed(2)} $_currencyCode',
+          );
+        }
         _loadInvoiceById(_loadedInvoiceId!);
       } else {
         // Create new invoice
@@ -703,12 +779,49 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
               r.unitName,
             ]);
 
+            // Smart Multi-Warehouse Stock Deduction
+            String targetWhId = _selectedWarehouseId!;
+            final localBal = tx.select(
+              'SELECT quantity FROM inventory_balances WHERE warehouse_id = ? AND product_id = ? LIMIT 1',
+              [_selectedWarehouseId, r.productId],
+            );
+            final currentLocalQty = localBal.isNotEmpty ? ((localBal.first['quantity'] as num?)?.toInt() ?? 0) : 0;
+            if (currentLocalQty < r.inventoryPieces) {
+              // Local warehouse does not have enough stock; find warehouse that has stock
+              final bestWh = tx.select('''
+                SELECT warehouse_id, quantity 
+                FROM inventory_balances 
+                WHERE product_id = ? AND quantity >= ?
+                ORDER BY quantity DESC LIMIT 1
+              ''', [r.productId, r.inventoryPieces]);
+              if (bestWh.isNotEmpty) {
+                targetWhId = bestWh.first['warehouse_id'] as String;
+              } else {
+                final anyBestWh = tx.select('''
+                  SELECT warehouse_id, quantity 
+                  FROM inventory_balances 
+                  WHERE product_id = ? AND quantity > 0
+                  ORDER BY quantity DESC LIMIT 1
+                ''', [r.productId]);
+                if (anyBestWh.isNotEmpty) {
+                  targetWhId = anyBestWh.first['warehouse_id'] as String;
+                }
+              }
+            }
+
+            // Ensure inventory_balances record exists
+            tx.execute('''
+              INSERT INTO inventory_balances (id, warehouse_id, product_id, quantity, updated_at)
+              VALUES (?, ?, ?, 0, datetime('now'))
+              ON CONFLICT(warehouse_id, product_id) DO NOTHING
+            ''', ['bal_${uuid.v4()}', targetWhId, r.productId]);
+
             // Deduct stock
             tx.execute('''
               UPDATE inventory_balances 
               SET quantity = quantity - ?, updated_at = datetime('now')
               WHERE warehouse_id = ? AND product_id = ?
-            ''', [r.inventoryPieces, _selectedWarehouseId, r.productId]);
+            ''', [r.inventoryPieces, targetWhId, r.productId]);
 
             // Stock movement
             tx.execute('''
@@ -720,7 +833,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
             ''', [
               'mov_${uuid.v4()}',
               companyId,
-              _selectedWarehouseId,
+              targetWhId,
               r.productId,
               -r.inventoryPieces,
               r.costPriceCents,
@@ -858,6 +971,16 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
         } catch (_) {}
 
         _showSnack('تم حفظ وترحيل الفاتورة $_invoiceNumber بنجاح!');
+
+        if (mounted) {
+          OperationSuccessDialog.show(
+            context: context,
+            title: 'تم إنشاء فاتورة المبيعات بنجاح',
+            message: 'تم حفظ وترحيل الفاتورة وتحديث المخزون والقيود المحاسبية بنجاح.',
+            referenceCode: _invoiceNumber,
+            amountText: '${(_grandTotalCents / 100).toStringAsFixed(2)} $_currencyCode',
+          );
+        }
 
         // 7. Auto print if enabled
         if (_printAfterSave || _directPrint) {
@@ -1331,8 +1454,12 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                               separatorBuilder: (_, __) => const Divider(height: 1),
                               itemBuilder: (context, idx) {
                                 final p = filtered[idx];
-                                final stock = _getWarehouseStock(p.id);
-                                final isAvailable = stock > 0;
+                                final stockDetails = _getProductStockDetails(p.id);
+                                final localStock = stockDetails['localStock'] as int;
+                                final totalStock = stockDetails['totalStock'] as int;
+                                final effectiveStock = stockDetails['effectiveStock'] as int;
+                                final otherWh = stockDetails['otherWarehouseName'] as String?;
+                                final isAvailable = effectiveStock > 0;
                                 final salePrice = (_priceLevel == 'WHOLESALE' && p.minSalePriceCents > 0)
                                     ? p.minSalePrice
                                     : p.salePrice;
@@ -1356,18 +1483,45 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: isAvailable ? Colors.green.shade50 : Colors.red.shade50,
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(color: isAvailable ? Colors.green.shade200 : Colors.red.shade200),
+                                      if (localStock > 0)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.shade50,
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: Colors.green.shade200),
+                                          ),
+                                          child: Text(
+                                            'المخزون: $localStock ${_getUnitNameById(p.baseUnitId)}',
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green.shade800),
+                                          ),
+                                        )
+                                      else if (totalStock > 0)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.teal.shade50,
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: Colors.teal.shade200),
+                                          ),
+                                          child: Text(
+                                            'متوفر بالمخازن: $totalStock ${_getUnitNameById(p.baseUnitId)}${otherWh != null ? " ($otherWh)" : ""}',
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.teal.shade800),
+                                          ),
+                                        )
+                                      else
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.shade50,
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: Colors.red.shade200),
+                                          ),
+                                          child: Text(
+                                            'غير متوفر (0 ${_getUnitNameById(p.baseUnitId)})',
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red.shade800),
+                                          ),
                                         ),
-                                        child: Text(
-                                          'المخزون: $stock ${_getUnitNameById(p.baseUnitId)}',
-                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isAvailable ? Colors.green.shade800 : Colors.red.shade800),
-                                        ),
-                                      ),
                                     ],
                                   ),
                                   subtitle: Row(
@@ -1652,23 +1806,31 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                   if (val != null) {
                     setState(() {
                       _selectedBranchId = val;
-                      final orgRepo = OrganizationRepository(ref.read(databaseServiceProvider));
-                      _warehouses = orgRepo.getWarehouses(val);
-                      if (_warehouses.isEmpty) {
-                        try {
-                          final allWh = ref.read(databaseServiceProvider).select('SELECT id, branch_id, code, name, is_active FROM warehouses WHERE is_active = 1');
-                          if (allWh.isNotEmpty) {
-                            _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
-                          } else {
-                            final createdWh = orgRepo.createWarehouse(
-                              branchId: val,
-                              code: 'WH-01',
-                              name: 'المستودع الرئيسي',
-                            );
-                            _warehouses = [createdWh];
-                          }
-                        } catch (_) {}
-                      }
+                      final db = ref.read(databaseServiceProvider);
+                      try {
+                        final whQuery = db.select('''
+                          SELECT w.id, w.branch_id, w.code,
+                                 CASE 
+                                   WHEN w.branch_id != ? THEN w.name || ' (' || COALESCE(b.name, 'فرع آخر') || ')'
+                                   ELSE w.name 
+                                 END as display_name,
+                                 w.is_active,
+                                 COALESCE((SELECT SUM(quantity) FROM inventory_balances WHERE warehouse_id = w.id), 0) as total_stock
+                          FROM warehouses w
+                          LEFT JOIN branches b ON w.branch_id = b.id
+                          WHERE w.is_active = 1
+                          ORDER BY (w.branch_id = ?) DESC, total_stock DESC, w.code ASC
+                        ''', [val, val]);
+                        if (whQuery.isNotEmpty) {
+                          _warehouses = whQuery.map((r) => WarehouseEntity(
+                            id: r['id'] as String,
+                            branchId: r['branch_id'] as String,
+                            code: r['code'] as String,
+                            name: r['display_name'] as String,
+                            isActive: (r['is_active'] as int) == 1,
+                          )).toList();
+                        }
+                      } catch (_) {}
                       if (_warehouses.isNotEmpty) {
                         _selectedWarehouseId = _warehouses.first.id;
                       }

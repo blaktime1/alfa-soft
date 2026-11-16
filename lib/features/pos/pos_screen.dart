@@ -11,6 +11,7 @@ import '../../core/theme/app_colors.dart';
 import 'package:printing/printing.dart';
 import '../../core/printing/printer_service.dart';
 import '../../core/printing/pdf_invoice_generator.dart';
+import '../../core/widgets/operation_success_dialog.dart';
 
 class CartItem {
   final String productId;
@@ -585,6 +586,16 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ $formattedTotal ($paymentMethod)$printNotice';
         }
       });
+
+      if (mounted) {
+        OperationSuccessDialog.show(
+          context: context,
+          title: 'تم إنشاء فاتورة المبيعات بنجاح',
+          message: 'تم تسجيل وحفظ الفاتورة وترحيل القيود المحاسبية بنجاح.',
+          referenceCode: invoiceNumber,
+          amountText: formattedTotal,
+        );
+      }
 
       _barcodeFocusNode.requestFocus();
     } catch (e) {

@@ -15,6 +15,7 @@ import '../../domain/entities/purchase.dart';
 import '../../domain/entities/partner.dart';
 import '../../domain/entities/catalog.dart';
 import '../../domain/entities/organization.dart';
+import '../../core/widgets/operation_success_dialog.dart';
 
 class PurchasesScreen extends ConsumerStatefulWidget {
   const PurchasesScreen({super.key});
@@ -338,14 +339,22 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                       items: poItems,
                     );
 
+                    final totalCostCents = items.fold(0, (sum, it) => sum + ((it.costPrice * 100).round() * it.quantity));
+
                     for (final it in items) {
                       it.dispose();
                     }
                     Navigator.pop(ctx);
                     _loadData();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('تم إنشاء أمر الشراء $orderNumber بنجاح'), backgroundColor: AppColors.success),
-                    );
+                    if (mounted) {
+                      OperationSuccessDialog.show(
+                        context: context,
+                        title: 'تم إنشاء أمر الشراء بنجاح',
+                        message: 'تم تسجيل أمر الشراء وترحيله بنجاح وهو جاهز للتوريد والاستلام.',
+                        referenceCode: orderNumber,
+                        amountText: '${(totalCostCents / 100).toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                      );
+                    }
                   },
                   child: const Text('حفظ أمر الشراء'),
                 ),
@@ -983,9 +992,15 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                       }
                       Navigator.pop(ctx);
                       _loadData();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('تم حفظ فاتورة المشتريات وتوريد الأصناف للمخزن بنجاح'), backgroundColor: AppColors.success),
-                      );
+                      if (mounted) {
+                        OperationSuccessDialog.show(
+                          context: context,
+                          title: 'تم الاستيراد والتوريد إلى المخازن بنجاح',
+                          message: 'تم حفظ فاتورة المشتريات وتوريد الأصناف ورفع رصيد المخزون بنجاح.',
+                          referenceCode: invoiceNumber,
+                          amountText: '${grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                        );
+                      }
                     } catch (e) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text('خطأ: $e'), backgroundColor: AppColors.danger),
@@ -1078,9 +1093,15 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
 
                     Navigator.pop(ctx);
                     _loadData();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('تم استلام البضاعة وتحديث أرصدة المخزون برقم: $receiptNumber')),
-                    );
+                    if (mounted) {
+                      OperationSuccessDialog.show(
+                        context: context,
+                        title: 'تم استلام وتوريد البضاعة للمخزن بنجاح',
+                        message: 'تم توريد البضاعة ورفع رصيد المخزون وحساب متوسط التكلفة آلياً.',
+                        referenceCode: receiptNumber,
+                        amountText: '${po.grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
+                      );
+                    }
                   },
                 ),
               ],

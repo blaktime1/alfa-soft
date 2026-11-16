@@ -6,6 +6,7 @@ import '../../core/printing/printer_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../domain/entities/accounting.dart';
 import '../../data/repositories/accounting_repository.dart';
+import '../../core/widgets/operation_success_dialog.dart';
 
 class AccountingScreen extends ConsumerStatefulWidget {
   const AccountingScreen({super.key});
@@ -772,11 +773,12 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
                   } catch (_) {}
                 }
                 setState(() {});
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('تم إلغاء وعكس السند ${v.number} واسترجاع الرصيد بنجاح'),
-                    backgroundColor: AppColors.success,
-                  ),
+                OperationSuccessDialog.show(
+                  context: context,
+                  title: 'تم إلغاء وعكس السند بنجاح',
+                  message: 'تم عكس القيد المحاسبي وإلغاء أثر السند واسترجاع الرصيد للخزينة بنجاح.',
+                  referenceCode: v.number,
+                  amountText: '${v.amount.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                 );
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1213,8 +1215,12 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
 
                   Navigator.pop(ctx);
                   setState(() {});
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('تم ترحيل سند القبض والإيداع $receiptNumber بنجاح'), backgroundColor: AppColors.success),
+                  OperationSuccessDialog.show(
+                    context: context,
+                    title: 'تم تسجيل وترحيل سند القبض بنجاح',
+                    message: 'تم توريد المبلغ إلى الخزينة وقيد السند في اليومية العامة آلياً.',
+                    referenceCode: receiptNumber,
+                    amountText: '${amount.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                   );
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e'), backgroundColor: AppColors.danger));
@@ -1914,11 +1920,12 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
 
                     Navigator.pop(ctx);
                     setState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('تم تسجيل سند الصرف رقم ${voucher.voucherNumber} وترحيل القيد المحاسبي بنجاح'),
-                        backgroundColor: AppColors.success,
-                      ),
+                    OperationSuccessDialog.show(
+                      context: context,
+                      title: 'تم تسجيل سند الصرف والمصروفات بنجاح',
+                      message: 'تم قيد سند المصروف وترحيل القيد في دفتر اليومية العامة وحسم المبلغ من الخزينة.',
+                      referenceCode: voucher.voucherNumber,
+                      amountText: '${amount.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                     );
                   } catch (e) {
                     ScaffoldMessenger.of(context).showSnackBar(

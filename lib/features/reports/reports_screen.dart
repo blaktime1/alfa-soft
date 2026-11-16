@@ -617,10 +617,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
     final totalTaxRow = db.select('SELECT COALESCE(SUM(tax_total), 0) as tax FROM sales_invoices').first;
     final totalProductsRow = db.select('SELECT COUNT(*) as cnt FROM products WHERE is_active = 1').first;
 
-    final totalSales = (totalSalesRow['total'] as int) / 100.0;
-    final totalInvoices = totalInvoicesRow['cnt'] as int;
-    final totalTax = (totalTaxRow['tax'] as int) / 100.0;
-    final totalProducts = totalProductsRow['cnt'] as int;
+    final totalSales = ((totalSalesRow['total'] as num?)?.toDouble() ?? 0.0) / 100.0;
+    final totalInvoices = (totalInvoicesRow['cnt'] as num?)?.toInt() ?? 0;
+    final totalTax = ((totalTaxRow['tax'] as num?)?.toDouble() ?? 0.0) / 100.0;
+    final totalProducts = (totalProductsRow['cnt'] as num?)?.toInt() ?? 0;
 
     final cur = PrinterService.defaultCurrency;
 
@@ -1502,8 +1502,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           : "SELECT COALESCE(SUM(grand_total), 0) as total, COALESCE(SUM(paid_total), 0) as paid, COUNT(*) as cnt FROM sales_invoices WHERE company_id = ? AND status != 'VOID' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
       final salesResult = db.select(salesQuery, [companyId]);
       if (salesResult.isNotEmpty) {
-        totalSalesCents = salesResult.first['total'] as int? ?? 0;
-        salesCount = salesResult.first['cnt'] as int? ?? 0;
+        totalSalesCents = (salesResult.first['total'] as num?)?.toInt() ?? 0;
+        salesCount = (salesResult.first['cnt'] as num?)?.toInt() ?? 0;
       }
 
       // 2. Purchases
@@ -1512,8 +1512,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           : "SELECT COALESCE(SUM(grand_total), 0) as total, COUNT(*) as cnt FROM purchase_orders WHERE company_id = ? AND status != 'CANCELLED' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
       final poResult = db.select(poQuery, [companyId]);
       if (poResult.isNotEmpty) {
-        totalPurchasesCents = poResult.first['total'] as int? ?? 0;
-        purchasesCount = poResult.first['cnt'] as int? ?? 0;
+        totalPurchasesCents = (poResult.first['total'] as num?)?.toInt() ?? 0;
+        purchasesCount = (poResult.first['cnt'] as num?)?.toInt() ?? 0;
       }
 
       // 3. Operating Expenses
@@ -1522,8 +1522,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           : "SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt FROM expense_vouchers WHERE company_id = ? AND (status IS NULL OR status != 'CANCELLED') AND strftime('%Y', created_at) = '$_selectedAuditYear'";
       final expResult = db.select(expQuery, [companyId]);
       if (expResult.isNotEmpty) {
-        totalExpensesCents = expResult.first['total'] as int? ?? 0;
-        expensesCount = expResult.first['cnt'] as int? ?? 0;
+        totalExpensesCents = (expResult.first['total'] as num?)?.toInt() ?? 0;
+        expensesCount = (expResult.first['cnt'] as num?)?.toInt() ?? 0;
       }
 
       // 4. Payroll Runs
@@ -1532,8 +1532,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
           : "SELECT COALESCE(SUM(total_net), 0) as total, COUNT(*) as cnt FROM payroll_runs WHERE company_id = ? AND status != 'CANCELLED' AND period_month LIKE '$_selectedAuditYear-%'";
       final prResult = db.select(prQuery, [companyId]);
       if (prResult.isNotEmpty) {
-        totalPayrollCents = prResult.first['total'] as int? ?? 0;
-        payrollCount = prResult.first['cnt'] as int? ?? 0;
+        totalPayrollCents = (prResult.first['total'] as num?)?.toInt() ?? 0;
+        payrollCount = (prResult.first['cnt'] as num?)?.toInt() ?? 0;
       }
 
       // 5. Stock Valuation
@@ -1551,7 +1551,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
       ''';
       stockRows = db.select(stockQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
       for (final s in stockRows) {
-        final qty = s['quantity'] as int? ?? 0;
+        final qty = (s['quantity'] as num?)?.toInt() ?? 0;
         final cost = (s['cost_price_cents'] as num?)?.toInt() ?? 0;
         final retail = (s['unit_price_cents'] as num?)?.toInt() ?? 0;
         totalStockCostCents += (qty * cost);
@@ -1568,7 +1568,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
       ''';
       custRows = db.select(custQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
       for (final c in custRows) {
-        totalReceivablesCents += (c['current_balance'] as int? ?? 0);
+        totalReceivablesCents += ((c['current_balance'] as num?)?.toInt() ?? 0);
       }
 
       // 7. Suppliers (Payables - الديون التي علينا)
@@ -1580,7 +1580,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
       ''';
       suppRows = db.select(suppQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
       for (final s in suppRows) {
-        totalPayablesCents += (s['current_balance'] as int? ?? 0);
+        totalPayablesCents += ((s['current_balance'] as num?)?.toInt() ?? 0);
       }
     } catch (e) {
       debugPrint('Error calculating annual audit report: $e');
@@ -1956,7 +1956,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                 const DataColumn(label: Text('الحالة', style: TextStyle(fontWeight: FontWeight.bold))),
               ],
               rows: custRows.map((c) {
-                final bal = ((c['current_balance'] as int? ?? 0) / 100.0);
+                final bal = (((c['current_balance'] as num?)?.toDouble() ?? 0.0) / 100.0);
                 return DataRow(cells: [
                   DataCell(Text(c['code'] as String? ?? '-', style: const TextStyle(fontFamily: 'monospace'))),
                   DataCell(Text(c['name'] as String? ?? '-')),
@@ -2018,7 +2018,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                 const DataColumn(label: Text('الحالة', style: TextStyle(fontWeight: FontWeight.bold))),
               ],
               rows: suppRows.map((s) {
-                final bal = ((s['current_balance'] as int? ?? 0) / 100.0);
+                final bal = (((s['current_balance'] as num?)?.toDouble() ?? 0.0) / 100.0);
                 return DataRow(cells: [
                   DataCell(Text(s['code'] as String? ?? '-', style: const TextStyle(fontFamily: 'monospace'))),
                   DataCell(Text(s['name'] as String? ?? '-')),
@@ -2075,9 +2075,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                 DataColumn(label: Text('إجمالي البيع ($cur)', style: const TextStyle(fontWeight: FontWeight.bold))),
               ],
               rows: stockRows.take(50).map((st) {
-                final qty = st['quantity'] as int? ?? 0;
-                final cost = (st['cost_price_cents'] as int? ?? 0) / 100.0;
-                final retail = (st['unit_price_cents'] as int? ?? 0) / 100.0;
+                final qty = (st['quantity'] as num?)?.toInt() ?? 0;
+                final cost = ((st['cost_price_cents'] as num?)?.toDouble() ?? 0.0) / 100.0;
+                final retail = ((st['unit_price_cents'] as num?)?.toDouble() ?? 0.0) / 100.0;
                 final totalCost = (qty * cost);
                 final totalRetail = (qty * retail);
                 return DataRow(cells: [
@@ -2278,7 +2278,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                             pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${c['code']}', style: const pw.TextStyle(fontSize: 8))),
                             pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${c['name']}', style: const pw.TextStyle(fontSize: 8))),
                             pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${c['phone'] ?? '-'}', style: const pw.TextStyle(fontSize: 8))),
-                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${((c['current_balance'] as int? ?? 0) / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${((((c['current_balance'] as num?)?.toDouble() ?? 0.0) / 100.0)).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
                           ],
                         )),
                   ],
@@ -2307,7 +2307,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                             pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${s['code']}', style: const pw.TextStyle(fontSize: 8))),
                             pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${s['name']}', style: const pw.TextStyle(fontSize: 8))),
                             pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${s['phone'] ?? '-'}', style: const pw.TextStyle(fontSize: 8))),
-                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${((s['current_balance'] as int? ?? 0) / 100.0).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${((((s['current_balance'] as num?)?.toDouble() ?? 0.0) / 100.0)).toStringAsFixed(2)} $cur', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
                           ],
                         )),
                   ],
