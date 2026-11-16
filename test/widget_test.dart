@@ -133,7 +133,8 @@ void main() {
     expect(find.text('ALFA SOFT'), findsOneWidget);
     expect(find.text('منظومة إدارة الموارد المؤسسية الذكية — ERP'), findsOneWidget);
     expect(find.text('تسجيل الدخول للنظام'), findsOneWidget);
-    expect(find.text('حساب المسؤول الافتراضي:'), findsOneWidget);
+    expect(find.text('اسم المستخدم'), findsOneWidget);
+    expect(find.text('كلمة المرور'), findsOneWidget);
 
     dbService.dispose();
   });

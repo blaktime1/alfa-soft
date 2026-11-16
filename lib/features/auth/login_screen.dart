@@ -109,14 +109,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  void _fillDefaultCredentials() {
-    setState(() {
-      _usernameController.text = 'admin';
-      _passwordController.text = 'Admin@2026';
-      _errorMessage = null;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -474,47 +466,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                           ),
 
-                          const SizedBox(height: 24),
 
-                          // Quick Credential Assist Card
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: AppColors.lightBgSubtle,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.lightBorderSubtle),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.key_rounded, size: 18, color: AppColors.brandGold),
-                                const SizedBox(width: 10),
-                                const Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'حساب المسؤول الافتراضي:',
-                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.lightTextSecondary),
-                                      ),
-                                      Text(
-                                        'admin / Admin@2026',
-                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.lightTextPrimary),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                  onPressed: _fillDefaultCredentials,
-                                  child: const Text('تعبئة سريعة', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-                                ),
-                              ],
-                            ),
-                          ),
                         ],
                       ),
                     ),

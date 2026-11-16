@@ -200,6 +200,21 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     });
   }
 
+  int _getProductWarehouseStock(String productId) {
+    if (_selectedWarehouseId.isEmpty) return 0;
+    try {
+      final db = ref.read(databaseServiceProvider);
+      final row = db.select(
+        'SELECT quantity FROM inventory_balances WHERE warehouse_id = ? AND product_id = ? LIMIT 1',
+        [_selectedWarehouseId, productId],
+      );
+      if (row.isNotEmpty) {
+        return (row.first['quantity'] as num?)?.toInt() ?? 0;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
   void _handleBarcodeSubmit(String rawBarcode) {
     final query = rawBarcode.trim();
     if (query.isEmpty) return;
@@ -209,15 +224,17 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       SELECT p.id, p.sku, p.barcode, p.name_ar, p.sale_price, p.min_sale_price, p.cost_price,
              p.units_per_carton, p.carton_price, p.carton_cost_price, p.carton_barcode,
              COALESCE(u.name, 'حبة') as unit_name,
+             COALESCE(ib.quantity, 0) as stock_qty,
              wpp.sale_price as wh_sale_price,
              wpp.wholesale_price as wh_wholesale_price,
              wpp.carton_price as wh_carton_price
       FROM products p
       LEFT JOIN units u ON u.id = p.base_unit_id
+      LEFT JOIN inventory_balances ib ON ib.product_id = p.id AND ib.warehouse_id = ?
       LEFT JOIN warehouse_product_prices wpp ON wpp.product_id = p.id AND wpp.warehouse_id = ?
       WHERE p.is_active = 1 AND (p.barcode = ? OR p.carton_barcode = ? OR p.sku = ? OR p.name_ar LIKE ?)
       LIMIT 1
-    ''', [_selectedWarehouseId, query, query, query, '%$query%']);
+    ''', [_selectedWarehouseId, _selectedWarehouseId, query, query, query, '%$query%']);
 
     if (match.isNotEmpty) {
       final p = match.first;
@@ -232,8 +249,44 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 
   void _addItemToCart(Map<String, dynamic> product, {bool addAsCarton = false}) {
+    final productId = product['id'] as String;
+    final unitsPerCarton = product['units_per_carton'] as int? ?? 1;
+    final addingPieces = addAsCarton ? unitsPerCarton : 1;
+    final availableStock = _getProductWarehouseStock(productId);
+
+    if (availableStock <= 0) {
+      setState(() => _lastMessage = 'عفواً! الصنف "${product['name_ar']}" نفد من المخزن (الرصيد: 0). لا يمكن البيع.');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('عفواً! الصنف "${product['name_ar']}" غير متوفر في المخزن المحدد (الرصيد: 0). يرجى توريد بضاعة للمخزن أولاً.'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    final currentInCartPieces = _cart
+        .where((i) => i.productId == productId)
+        .fold(0, (sum, i) => sum + i.inventoryPieces);
+
+    if (currentInCartPieces + addingPieces > availableStock) {
+      setState(() => _lastMessage = 'عفواً! الكمية المطلوبة تتجاوز الرصيد المتوفر في المخزن ($availableStock قطعة).');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('عفواً! الكمية المطلوبة من "${product['name_ar']}" تتجاوز الرصيد المتوفر في المخزن ($availableStock قطعة).'),
+            backgroundColor: AppColors.warning,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
-      final productId = product['id'] as String;
       final existingIndex = _cart.indexWhere((i) => i.productId == productId && i.isCarton == addAsCarton);
       if (existingIndex >= 0) {
         _cart[existingIndex].quantity += 1;
@@ -241,7 +294,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         final baseSale = product['wh_sale_price'] as int? ?? product['sale_price'] as int? ?? 0;
         final baseMin = product['wh_wholesale_price'] as int? ?? product['min_sale_price'] as int? ?? baseSale;
         final whCarton = product['wh_carton_price'] as int? ?? product['carton_price'] as int? ?? 0;
-        final unitsPerCarton = product['units_per_carton'] as int? ?? 1;
         final unitName = (product['unit_name'] as String?) ?? 'حبة';
 
         _cart.add(CartItem(
@@ -295,6 +347,32 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         ),
       );
       return;
+    }
+
+    // Strict stock check: Prevent selling when out of stock
+    for (final item in _cart) {
+      final availableStock = _getProductWarehouseStock(item.productId);
+      if (availableStock <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('لا يمكن إتمام البيع! الصنف "${item.name}" غير متوفر في المخزن (الرصيد: 0). يرجى توريد البضاعة للمخزن أولاً.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+      final totalItemPieces = _cart
+          .where((i) => i.productId == item.productId)
+          .fold(0, (sum, i) => sum + i.inventoryPieces);
+      if (totalItemPieces > availableStock) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('لا يمكن إتمام البيع! الكمية المطلوبة من "${item.name}" ($totalItemPieces قطعة) تتجاوز الرصيد المتوفر في المخزن ($availableStock قطعة).'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _isProcessing = true);
@@ -403,6 +481,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             userId,
           ]);
 
+          // Ensure inventory_balances record exists
+          tx.execute('''
+            INSERT INTO inventory_balances (warehouse_id, product_id, quantity, updated_at)
+            VALUES (?, ?, 0, datetime('now'))
+            ON CONFLICT(warehouse_id, product_id) DO NOTHING
+          ''', [warehouseId, item.productId]);
+
           // Update Warehouse Real-time Stock Balance
           tx.execute('''
             UPDATE inventory_balances 
@@ -450,7 +535,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           branchId,
           userId,
           invoiceId,
-          'Invoice: $invoiceNumber, Total: ${_grandTotalCents / 100} SAR, Status: $paymentStatus, BalanceDue: ${balanceDueCents / 100} SAR',
+          'Invoice: $invoiceNumber, Total: ${_grandTotalCents / 100} $_currencyCode, Status: $paymentStatus, BalanceDue: ${balanceDueCents / 100} $_currencyCode',
         ]);
       });
 
@@ -598,6 +683,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ $formattedTotal ($paymentMethod)$printNotice';
         }
       });
+
+      _loadCatalog();
 
       if (mounted) {
         OperationSuccessDialog.show(
@@ -796,7 +883,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text('إجمالي الفاتورة المطلوب:', style: TextStyle(fontWeight: FontWeight.w600)),
-                              Text('${totalDouble.toStringAsFixed(2)} SAR',
+                              Text('${totalDouble.toStringAsFixed(2)} $_currencyCode',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.brandPrimary)),
                             ],
                           ),
@@ -805,7 +892,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text('المبلغ المتبقي آجل على الحساب:', style: TextStyle(fontWeight: FontWeight.w600)),
-                              Text('${remainingDue.toStringAsFixed(2)} SAR',
+                              Text('${remainingDue.toStringAsFixed(2)} $_currencyCode',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.dangerText)),
                             ],
                           ),
@@ -840,10 +927,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                     // Customer Balance Info Box
                     Row(
                       children: [
-                        Text('الرصيد السابق عليه: ${currentDebt.toStringAsFixed(2)} SAR',
+                        Text('الرصيد السابق عليه: ${currentDebt.toStringAsFixed(2)} $_currencyCode',
                             style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
                         const Spacer(),
-                        Text('سقف الائتمان: ${creditLimit.toStringAsFixed(2)} SAR',
+                        Text('سقف الائتمان: ${creditLimit.toStringAsFixed(2)} $_currencyCode',
                             style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
                       ],
                     ),
@@ -1159,8 +1246,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                       ),
                                       subtitle: Text(
                                         item.isCarton
-                                            ? 'SKU: ${item.sku} | سعر الكرتون: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR (مسحوب: ${item.inventoryPieces} ${item.unitName})'
-                                            : 'SKU: ${item.sku} | سعر ${item.unitName}: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR',
+                                            ? 'SKU: ${item.sku} | سعر الكرتون: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} $_currencyCode (مسحوب: ${item.inventoryPieces} ${item.unitName})'
+                                            : 'SKU: ${item.sku} | سعر ${item.unitName}: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} $_currencyCode',
                                       ),
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -1181,6 +1268,21 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                           IconButton(
                                             icon: const Icon(Icons.add_circle_outline_rounded),
                                             onPressed: () {
+                                              final availableStock = _getProductWarehouseStock(item.productId);
+                                              final addingPieces = item.isCarton ? item.unitsPerCarton : 1;
+                                              final currentInCartPieces = _cart
+                                                  .where((i) => i.productId == item.productId)
+                                                  .fold(0, (sum, i) => sum + i.inventoryPieces);
+                                              if (currentInCartPieces + addingPieces > availableStock) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('لا يمكن زيادة الكمية! الرصيد المتوفر في المخزن ($availableStock قطعة) فقط.'),
+                                                    backgroundColor: AppColors.warning,
+                                                    duration: const Duration(seconds: 2),
+                                                  ),
+                                                );
+                                                return;
+                                              }
                                               setState(() => item.quantity += 1);
                                             },
                                           ),
@@ -1188,7 +1290,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                           SizedBox(
                                             width: 95,
                                             child: Text(
-                                              '${(item.totalCents / 100.0).toStringAsFixed(2)} SAR',
+                                              '${(item.totalCents / 100.0).toStringAsFixed(2)} $_currencyCode',
                                               textAlign: TextAlign.end,
                                               style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandAccent),
                                             ),
@@ -1271,7 +1373,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                       Row(
                                         children: [
                                           Text(
-                                            '${(salePrice / 100.0).toStringAsFixed(2)} SAR',
+                                            '${(salePrice / 100.0).toStringAsFixed(2)} $_currencyCode',
                                             style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandAccent, fontSize: 12),
                                           ),
                                           const Spacer(),

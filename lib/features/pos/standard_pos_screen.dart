@@ -674,6 +674,25 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
       }
     }
 
+    // Strict stock check: Prevent selling when out of stock
+    for (final r in validRows) {
+      final availableStock = _getWarehouseStock(r.productId);
+      if (availableStock <= 0) {
+        _showSnack(
+          'لا يمكن إتمام البيع! الصنف "${r.name}" غير متوفر في المخزن (الرصيد: 0). يرجى توريد البضاعة للمخزن أولاً.',
+          isError: true,
+        );
+        return;
+      }
+      if (r.inventoryPieces > availableStock) {
+        _showSnack(
+          'لا يمكن إتمام البيع! الكمية المطلوبة من "${r.name}" (${r.inventoryPieces} قطعة) تتجاوز الرصيد المتوفر في المخزن ($availableStock قطعة).',
+          isError: true,
+        );
+        return;
+      }
+    }
+
     try {
       if (_isEditingExisting && _loadedInvoiceId != null) {
         // Edit existing invoice
@@ -818,10 +837,10 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
             // Ensure inventory_balances record exists
             tx.execute('''
-              INSERT INTO inventory_balances (id, warehouse_id, product_id, quantity, updated_at)
-              VALUES (?, ?, ?, 0, datetime('now'))
+              INSERT INTO inventory_balances (warehouse_id, product_id, quantity, updated_at)
+              VALUES (?, ?, 0, datetime('now'))
               ON CONFLICT(warehouse_id, product_id) DO NOTHING
-            ''', ['bal_${uuid.v4()}', targetWhId, r.productId]);
+            ''', [targetWhId, r.productId]);
 
             // Deduct stock
             tx.execute('''
@@ -996,7 +1015,7 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
         // Add to navigation list & refresh
         _allInvoiceIds.add(newInvoiceId);
-        _resetToNewInvoice();
+        _initializeData();
       }
     } catch (e) {
       _showSnack('حدث خطأ أثناء الحفظ: $e', isError: true);

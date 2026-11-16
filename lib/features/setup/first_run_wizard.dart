@@ -23,9 +23,12 @@ class _FirstRunWizardState extends ConsumerState<FirstRunWizard> {
   final _taxNumberController = TextEditingController(text: '300012345600003');
   final _branchNameController = TextEditingController(text: 'الفرع الرئيسي');
   final _warehouseNameController = TextEditingController(text: 'مستودع المبيعات العام');
-  final _adminUsernameController = TextEditingController(text: 'admin');
-  final _adminPasswordController = TextEditingController(text: 'Admin@2026');
+  final _adminUsernameController = TextEditingController();
+  final _adminPasswordController = TextEditingController();
+  final _adminConfirmPasswordController = TextEditingController();
   final _adminFullNameController = TextEditingController(text: 'المدير العام');
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   CurrencyCode _selectedCurrency = CurrencyCode.sar;
   bool _isSubmitting = false;
@@ -39,6 +42,7 @@ class _FirstRunWizardState extends ConsumerState<FirstRunWizard> {
     _warehouseNameController.dispose();
     _adminUsernameController.dispose();
     _adminPasswordController.dispose();
+    _adminConfirmPasswordController.dispose();
     _adminFullNameController.dispose();
     super.dispose();
   }
@@ -308,41 +312,109 @@ class _FirstRunWizardState extends ConsumerState<FirstRunWizard> {
                       Text('3. بيانات المدير العام (حساب المسؤول الأول)',
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _adminFullNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'الاسم الكامل للمدير *',
-                          prefixIcon: Icon(Icons.badge_rounded),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandPrimary.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.brandPrimary.withValues(alpha: 0.2)),
                         ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'يرجى إدخال الاسم' : null,
+                        child: const Row(
+                          children: [
+                            Icon(Icons.security_rounded, color: AppColors.brandPrimary, size: 20),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'حساب المسؤول الأول يمتلك الصلاحيات المطلقة لإدارة النظام وتعديل الإعدادات والترخيص؛ يرجى تحديد اسم مستخدم وكلمة مرور قوية وحفظها بعناية.',
+                                style: TextStyle(fontSize: 12, color: AppColors.brandPrimary, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
                             child: TextFormField(
-                              controller: _adminUsernameController,
+                              controller: _adminFullNameController,
                               decoration: const InputDecoration(
-                                labelText: 'اسم المستخدم للولوج *',
-                                prefixIcon: Icon(Icons.person_rounded),
+                                labelText: 'الاسم الكامل للمدير *',
+                                prefixIcon: Icon(Icons.badge_rounded),
                               ),
                               validator: (v) =>
-                                  v == null || v.trim().isEmpty ? 'مطلوب' : null,
+                                  v == null || v.trim().isEmpty ? 'يرجى إدخال اسم المدير' : null,
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: TextFormField(
-                              controller: _adminPasswordController,
-                              obscureText: true,
+                              controller: _adminUsernameController,
                               decoration: const InputDecoration(
-                                labelText: 'كلمة المرور *',
-                                prefixIcon: Icon(Icons.lock_rounded),
+                                labelText: 'اسم المستخدم للولوج *',
+                                hintText: 'مثال: alfasoft_admin',
+                                prefixIcon: Icon(Icons.person_rounded),
                               ),
-                              validator: (v) =>
-                                  v != null && v.length >= 6 ? null : '6 خانات على الأقل',
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) return 'يرجى إدخال اسم المستخدم';
+                                if (v.trim().length < 3) return '3 أحرف على الأقل';
+                                return null;
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _adminPasswordController,
+                              obscureText: _obscurePassword,
+                              textDirection: TextDirection.ltr,
+                              decoration: InputDecoration(
+                                labelText: 'كلمة المرور الرئيسية *',
+                                prefixIcon: const Icon(Icons.lock_rounded),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                    size: 18,
+                                    color: AppColors.lightTextSecondary,
+                                  ),
+                                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                                ),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.isEmpty) return 'يرجى إدخال كلمة المرور';
+                                if (v.length < 6) return '6 خانات على الأقل';
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _adminConfirmPasswordController,
+                              obscureText: _obscureConfirmPassword,
+                              textDirection: TextDirection.ltr,
+                              decoration: InputDecoration(
+                                labelText: 'تأكيد كلمة المرور *',
+                                prefixIcon: const Icon(Icons.lock_reset_rounded),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                    size: 18,
+                                    color: AppColors.lightTextSecondary,
+                                  ),
+                                  onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+                                ),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.isEmpty) return 'يرجى تأكيد كلمة المرور';
+                                if (v != _adminPasswordController.text) return 'كلمات المرور غير متطابقة';
+                                return null;
+                              },
                             ),
                           ),
                         ],
