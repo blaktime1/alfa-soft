@@ -20,21 +20,7 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
   final LicenseService _licenseService = LicenseService();
 
   late String _hardwareId;
-
-  // Activation inputs
   final TextEditingController _activationKeyController = TextEditingController();
-
-  // Developer Generator inputs
-  final TextEditingController _devClientNameCtrl = TextEditingController(text: 'شركة التجارة والحلول الحديثة');
-  final TextEditingController _devHwidCtrl = TextEditingController();
-  final TextEditingController _devTaxCtrl = TextEditingController(text: '310987654300003');
-  final TextEditingController _devDaysCtrl = TextEditingController(text: '365');
-  LicenseTier _devSelectedTier = LicenseTier.enterprise;
-  String _devPlanType = 'LIFETIME'; // 'LIFETIME', 'ANNUAL', 'SEMI_ANNUAL', 'MONTHLY', 'CUSTOM'
-  String? _generatedLicenseOutput;
-  bool _isGenerating = false;
-  bool _isDeveloperUnlocked = false;
-  static const String developerMasterPasscode = 'Alfa@7812';
 
   static const String developerPhone = '781235491';
   static const String developerInstagram = '@mohlabss';
@@ -44,98 +30,12 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _hardwareId = _licenseService.getMachineHardwareId();
-    _devHwidCtrl.text = _hardwareId;
-  }
-
-  void _promptDeveloperUnlock() {
-    if (_isDeveloperUnlocked) {
-      setState(() {
-        _isDeveloperUnlocked = false;
-        _tabController.dispose();
-        _tabController = TabController(length: 2, vsync: this);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم قفل بوابة المطور بنجاح.')),
-      );
-      return;
-    }
-
-    final passCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.lock_person_rounded, color: AppColors.brandPrimary),
-            SizedBox(width: 8),
-            Text('منطقة المطور الحصرية'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'أدخل كلمة مرور المطور لتفعيل بوابة إصدار التراخيص وتوليد المفاتيح المشفرة:',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: passCtrl,
-              obscureText: true,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'رمز المطور السري (Developer Passcode)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.key_rounded),
-              ),
-              onSubmitted: (val) => _verifyDevPass(ctx, passCtrl.text),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          ElevatedButton(
-            onPressed: () => _verifyDevPass(ctx, passCtrl.text),
-            child: const Text('تحقق وفك القفل'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _verifyDevPass(BuildContext ctx, String entered) {
-    if (entered.trim() == developerMasterPasscode) {
-      Navigator.pop(ctx);
-      setState(() {
-        _isDeveloperUnlocked = true;
-        _tabController.dispose();
-        _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم التحقق بنجاح! تم فك قفل بوابة إصدار التراخيص.'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('رمز المرور غير صحيح! تم رفض الوصول لمنطقة المطور.'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
-    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     _activationKeyController.dispose();
-    _devClientNameCtrl.dispose();
-    _devHwidCtrl.dispose();
-    _devTaxCtrl.dispose();
-    _devDaysCtrl.dispose();
     super.dispose();
   }
 
@@ -185,9 +85,7 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
           final file = File(path);
           if (file.existsSync()) {
             final content = file.readAsStringSync().trim();
-            setState(() {
-              _activationKeyController.text = content;
-            });
+            _activationKeyController.text = content;
             await _handleActivate();
           }
         }
@@ -205,84 +103,37 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
     final key = _activationKeyController.text.trim();
     if (key.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى إدخال أو إلصاق مفتاح الترخيص أولاً'), backgroundColor: AppColors.error),
+        const SnackBar(content: Text('يرجى إدخال مفتاح الترخيص أو استيراد ملف الترخيص أولاً')),
       );
       return;
     }
 
-    final info = await ref.read(licenseInfoProvider.notifier).activate(key);
+    try {
+      final info = await ref.read(licenseInfoProvider.notifier).activate(key);
 
-    if (mounted) {
+      if (!mounted) return;
+
       if (info.isValid) {
-        _activationKeyController.clear();
         OperationSuccessDialog.show(
           context: context,
-          title: 'تم تنشيط وحفظ الترخيص بنجاح!',
-          message: 'تم تفعيل الترخيص ومطابقة التوقيع وبصمة الجهاز بنجاح.\nالمنشأة: ${info.licenseeName}\nالخطة: ${info.isLifetime ? "دائم مدى الحياة" : "صالح حتى ${info.expiresAt?.toIso8601String().substring(0, 10)}"}',
-          referenceCode: info.hardwareId,
-          amountText: info.tier.labelAr,
+          title: 'تم تنشيط وترخيص النظام بنجاح',
+          message: 'تم التحقق من الترخيص الرقمي وتثبيته على هذا الجهاز بنجاح.\nالمنشأة: ${info.licenseeName} (${info.tier.labelAr})',
+          referenceCode: info.planType,
+          amountText: info.isLifetime ? 'دائم مدى الحياة' : '${info.expiresAt?.toIso8601String().substring(0, 10)}',
         );
+        _activationKeyController.clear();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('فشل التنشيط: ${info.validationError}'),
+            content: Text(info.validationError ?? 'فشل التنشيط: مفتاح الترخيص غير مطابق لهذا الجهاز'),
             backgroundColor: AppColors.error,
           ),
         );
       }
-    }
-  }
-
-  Future<void> _handleDeveloperGenerate() async {
-    setState(() => _isGenerating = true);
-
-    try {
-      DateTime? expiresAt;
-      if (_devPlanType == 'ANNUAL') {
-        expiresAt = DateTime.now().add(const Duration(days: 365));
-      } else if (_devPlanType == 'SEMI_ANNUAL') {
-        expiresAt = DateTime.now().add(const Duration(days: 180));
-      } else if (_devPlanType == 'MONTHLY') {
-        expiresAt = DateTime.now().add(const Duration(days: 30));
-      } else if (_devPlanType == 'CUSTOM') {
-        final days = int.tryParse(_devDaysCtrl.text.trim()) ?? 30;
-        expiresAt = DateTime.now().add(Duration(days: days));
-      }
-
-      final licenseString = await _licenseService.issueLicense(
-        licenseeName: _devClientNameCtrl.text.trim(),
-        hardwareId: _devHwidCtrl.text.trim(),
-        taxNumber: _devTaxCtrl.text.trim(),
-        tier: _devSelectedTier,
-        planType: _devPlanType,
-        expiresAt: expiresAt,
-        notes: 'ترخيص نظام ألفا سوفت صادر من بوابة المطور',
-      );
-
-      // Also write file to Desktop / root
-      final safeName = _devClientNameCtrl.text.trim().replaceAll(RegExp(r'[\\/:*?"<>| ]'), '_');
-      final fileName = 'alfa_license_${safeName}_${_devHwidCtrl.text.trim().substring(_devHwidCtrl.text.trim().length - 4)}.alfalic';
-      final file = File(fileName);
-      file.writeAsStringSync(licenseString);
-
-      setState(() {
-        _generatedLicenseOutput = licenseString;
-        _isGenerating = false;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('تم توليد وحفظ ملف الترخيص: $fileName بنجاح!'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
     } catch (e) {
-      setState(() => _isGenerating = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في التوليد: $e'), backgroundColor: AppColors.error),
+          SnackBar(content: Text('خطأ أثناء التحقق: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -292,24 +143,12 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('إدارة التراخيص — Cryptographic Licensing Center'),
-        actions: [
-          IconButton(
-            tooltip: _isDeveloperUnlocked ? 'قفل بوابة المطور' : 'فك قفل بوابة المطور (Developer Mode)',
-            icon: Icon(
-              _isDeveloperUnlocked ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
-              color: _isDeveloperUnlocked ? Colors.amber : null,
-            ),
-            onPressed: _promptDeveloperUnlock,
-          ),
-        ],
+        title: const Text('مركز تراخيص النظام — Licensing Center'),
         bottom: TabBar(
           controller: _tabController,
-          tabs: [
-            const Tab(icon: Icon(Icons.verified_user_rounded), text: 'حالة الترخيص الحالي (Active License)'),
-            if (_isDeveloperUnlocked)
-              const Tab(icon: Icon(Icons.key_rounded), text: 'بوابة المطور ومولد المفاتيح (Key Generator)'),
-            const Tab(icon: Icon(Icons.featured_play_list_rounded), text: 'مصفوفة الباقات والميزات (Tiers Matrix)'),
+          tabs: const [
+            Tab(icon: Icon(Icons.verified_user_rounded), text: 'بيانات وحالة الترخيص الحالي (Active License)'),
+            Tab(icon: Icon(Icons.featured_play_list_rounded), text: 'باقات النظام والميزات (Tiers Matrix)'),
           ],
         ),
       ),
@@ -317,8 +156,6 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
         controller: _tabController,
         children: [
           _buildActiveLicenseTab(context),
-          if (_isDeveloperUnlocked)
-            _buildKeyGeneratorTab(context),
           _buildTiersMatrixTab(context),
         ],
       ),
@@ -464,26 +301,13 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
                           Expanded(
                             child: Text(
                               lic.validationError!,
-                              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12),
+                              style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ],
                       ),
                     ),
                   ],
-                  const SizedBox(height: 16),
-                  const Text('الموديلات البرمجية المفعلة:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: (lic.modules.isEmpty ? ['لا توجد'] : lic.modules).map((m) {
-                      return Chip(
-                        avatar: const Icon(Icons.check, size: 16, color: AppColors.success),
-                        label: Text(m, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                      );
-                    }).toList(),
-                  ),
                 ],
               ),
             ),
@@ -501,7 +325,7 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
                   Text('تنشيط أو تجديد مفتاح ترخيص جديد',
                       style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  const Text('الصق رمز الترخيص المشفر المعتمد (ALFALIC-...) أو استورد ملف الترخيص (.alfalic):'),
+                  const Text('الصق رمز الترخيص المعتمد أو استورد ملف الترخيص (.alfalic):'),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _activationKeyController,
@@ -552,164 +376,7 @@ class _LicensingScreenState extends ConsumerState<LicensingScreen> with SingleTi
   }
 
   // -------------------------------------------------------------
-  // TAB 2: DEVELOPER KEY GENERATOR
-  // -------------------------------------------------------------
-  Widget _buildKeyGeneratorTab(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.brandPrimary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.brandAccent),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.security_rounded, color: AppColors.brandAccent),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'بوابة المطور لإصدار تراخيص مشفرة خوارزمياً بنواة Ed25519 وموقعة رقمياً بالمفتاح الرئيسي ومقيدة بفرادة عتاد العميل للعمل 100% دون إنترنت.',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Card(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _devClientNameCtrl,
-                    decoration: const InputDecoration(labelText: 'اسم المنشأة المرخصة (العميل) *'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _devHwidCtrl,
-                    decoration: const InputDecoration(labelText: 'معرف عتاد جهاز العميل (Hardware ID) *'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _devTaxCtrl,
-                    decoration: const InputDecoration(labelText: 'الرقم الضريبي للمنشأة *'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<LicenseTier>(
-                    initialValue: _devSelectedTier,
-                    decoration: const InputDecoration(labelText: 'باقة الترخيص (Tier)'),
-                    items: LicenseTier.values.map((t) {
-                      return DropdownMenuItem(value: t, child: Text(t.labelAr));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _devSelectedTier = val);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _devPlanType,
-                    decoration: const InputDecoration(labelText: 'نوع ومدة الاشتراك المصرح به'),
-                    items: const [
-                      DropdownMenuItem(value: 'LIFETIME', child: Text('دائم مدى الحياة (Perpetual Lifetime)')),
-                      DropdownMenuItem(value: 'ANNUAL', child: Text('اشتراك سنوي (365 يوم)')),
-                      DropdownMenuItem(value: 'SEMI_ANNUAL', child: Text('اشتراك نصف سنوي (180 يوم)')),
-                      DropdownMenuItem(value: 'MONTHLY', child: Text('اشتراك شهري (30 يوم)')),
-                      DropdownMenuItem(value: 'CUSTOM', child: Text('عدد أيام مخصص')),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) setState(() => _devPlanType = val);
-                    },
-                  ),
-                  if (_devPlanType == 'CUSTOM') ...[
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _devDaysCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'عدد الأيام المصرح بها *'),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _isGenerating ? null : _handleDeveloperGenerate,
-                    icon: _isGenerating
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.verified_rounded),
-                    label: const Text('توليد وتوقيع حزمة الترخيص إلكترونياً (Ed25519) وتصدير الملف'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.brandAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_generatedLicenseOutput != null) ...[
-            const SizedBox(height: 20),
-            Card(
-              color: const Color(0xFF0F172A),
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('حزمة الترخيص المولدة والموقعة (Ready to Deliver):',
-                            style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.success)),
-                        Row(
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                _activationKeyController.text = _generatedLicenseOutput!;
-                                _tabController.animateTo(0);
-                                _handleActivate();
-                              },
-                              icon: const Icon(Icons.bolt_rounded, size: 16),
-                              label: const Text('تفعيل مباشر بهذا الجهاز'),
-                              style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPrimary),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: const Icon(Icons.copy_rounded, color: Colors.white),
-                              tooltip: 'نسخ الكود',
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: _generatedLicenseOutput!));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('تم نسخ كود الترخيص بنجاح')),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText(
-                      _generatedLicenseOutput!,
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.greenAccent),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // -------------------------------------------------------------
-  // TAB 3: TIERS MATRIX
+  // TAB 2: TIERS MATRIX
   // -------------------------------------------------------------
   Widget _buildTiersMatrixTab(BuildContext context) {
     return Padding(
