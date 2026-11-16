@@ -216,12 +216,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                       _receiptItem('زيت نباتي 1.5 لتر', '1', '18.00', '18.00'),
                       _receiptItem('أرز بسمتي 5 كجم', '1', '45.00', '45.00'),
                       Text('-' * (is80mm ? 40 : 26), textAlign: TextAlign.center),
-                      _receiptRow('المجموع الفرعي:', '75.00 SAR'),
-                      _receiptRow('ضريبة القيمة المضافة (15%):', '11.25 SAR'),
+                      _receiptRow('المجموع الفرعي:', '75.00 ${PrinterService.defaultCurrency}'),
+                      _receiptRow('ضريبة القيمة المضافة (15%):', '11.25 ${PrinterService.defaultCurrency}'),
                       Text('=' * (is80mm ? 40 : 26), textAlign: TextAlign.center),
-                      _receiptRow('الإجمالي النهائي المطلوب:', '86.25 SAR', isBold: true),
-                      _receiptRow('المدفوع نقداً:', '100.00 SAR'),
-                      _receiptRow('المتبقي للمستهلك:', '13.75 SAR'),
+                      _receiptRow('الإجمالي النهائي المطلوب:', '86.25 ${PrinterService.defaultCurrency}', isBold: true),
+                      _receiptRow('المدفوع نقداً:', '100.00 ${PrinterService.defaultCurrency}'),
+                      _receiptRow('المتبقي للمستهلك:', '13.75 ${PrinterService.defaultCurrency}'),
                       const SizedBox(height: 16),
                       // Mock QR Box
                       Container(
@@ -408,9 +408,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                         children: [
                           Padding(padding: const EdgeInsets.all(8), child: Text(it.productName)),
                           Padding(padding: const EdgeInsets.all(8), child: Text('${it.quantity} ${it.unitName}')),
-                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.unitPrice.toStringAsFixed(2)} ر.س')),
-                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.taxAmount.toStringAsFixed(2)} ر.س')),
-                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.lineTotal.toStringAsFixed(2)} ر.س')),
+                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.unitPrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}')),
+                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.taxAmount.toStringAsFixed(2)} ${PrinterService.defaultCurrency}')),
+                          Padding(padding: const EdgeInsets.all(8), child: Text('${it.lineTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}')),
                         ],
                       )),
                     ],
@@ -428,7 +428,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text('المجموع الخاضع للضريبة:'),
-                              Text('${header.subtotal.toStringAsFixed(2)} ر.س'),
+                              Text('${header.subtotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
                             ],
                           ),
                           const SizedBox(height: 4),
@@ -436,7 +436,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text('ضريبة القيمة المضافة (15%):'),
-                              Text('${header.taxTotal.toStringAsFixed(2)} ر.س'),
+                              Text('${header.taxTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}'),
                             ],
                           ),
                           const Divider(height: 16),
@@ -445,7 +445,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
                             children: [
                               const Text('المبلغ الإجمالي المستحق:',
                                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              Text('${header.grandTotal.toStringAsFixed(2)} ر.س',
+                              Text('${header.grandTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.brandAccent)),
                             ],
                           ),
@@ -1478,87 +1478,112 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> with SingleTicker
 
     final isAllYears = _selectedAuditYear == 'ALL';
 
-    // 1. Sales & Inflow
-    final salesQuery = isAllYears
-        ? "SELECT COALESCE(SUM(grand_total), 0) as total, COALESCE(SUM(paid_amount), 0) as paid, COUNT(*) as cnt FROM sales_invoices WHERE company_id = ? AND status != 'VOID'"
-        : "SELECT COALESCE(SUM(grand_total), 0) as total, COALESCE(SUM(paid_amount), 0) as paid, COUNT(*) as cnt FROM sales_invoices WHERE company_id = ? AND status != 'VOID' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
-    final salesRow = db.select(salesQuery, [companyId]).first;
-    final totalSalesCents = salesRow['total'] as int? ?? 0;
-    final salesCount = salesRow['cnt'] as int? ?? 0;
-
-    // 2. Purchases
-    final poQuery = isAllYears
-        ? "SELECT COALESCE(SUM(total_cents), 0) as total, COUNT(*) as cnt FROM purchase_orders WHERE company_id = ? AND status != 'CANCELLED'"
-        : "SELECT COALESCE(SUM(total_cents), 0) as total, COUNT(*) as cnt FROM purchase_orders WHERE company_id = ? AND status != 'CANCELLED' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
-    final poRow = db.select(poQuery, [companyId]).first;
-    final totalPurchasesCents = poRow['total'] as int? ?? 0;
-    final purchasesCount = poRow['cnt'] as int? ?? 0;
-
-    // 3. Operating Expenses
-    final expQuery = isAllYears
-        ? "SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt FROM expense_vouchers WHERE company_id = ? AND status != 'CANCELLED'"
-        : "SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt FROM expense_vouchers WHERE company_id = ? AND status != 'CANCELLED' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
-    final expRow = db.select(expQuery, [companyId]).first;
-    final totalExpensesCents = expRow['total'] as int? ?? 0;
-    final expensesCount = expRow['cnt'] as int? ?? 0;
-
-    // 4. Payroll Runs
-    final prQuery = isAllYears
-        ? "SELECT COALESCE(SUM(total_net), 0) as total, COUNT(*) as cnt FROM payroll_runs WHERE company_id = ? AND status != 'CANCELLED'"
-        : "SELECT COALESCE(SUM(total_net), 0) as total, COUNT(*) as cnt FROM payroll_runs WHERE company_id = ? AND status != 'CANCELLED' AND period_month LIKE '$_selectedAuditYear-%'";
-    final prRow = db.select(prQuery, [companyId]).first;
-    final totalPayrollCents = prRow['total'] as int? ?? 0;
-    final payrollCount = prRow['cnt'] as int? ?? 0;
-
-    // 5. Stock Valuation
-    final stockQuery = '''
-      SELECT 
-        p.id, p.barcode, p.sku, p.name_ar,
-        COALESCE(ib.quantity, 0) as quantity,
-        COALESCE(ib.average_cost, p.cost_price_cents, 0) as cost_price_cents,
-        p.unit_price_cents
-      FROM products p
-      LEFT JOIN inventory_balances ib ON ib.product_id = p.id
-      WHERE p.company_id = ? AND p.is_active = 1
-      ORDER BY p.name_ar ASC
-    ''';
-    final stockRows = db.select(stockQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+    int totalSalesCents = 0;
+    int salesCount = 0;
+    int totalPurchasesCents = 0;
+    int purchasesCount = 0;
+    int totalExpensesCents = 0;
+    int expensesCount = 0;
+    int totalPayrollCents = 0;
+    int payrollCount = 0;
+    List<Map<String, dynamic>> stockRows = [];
     int totalStockCostCents = 0;
     int totalStockRetailCents = 0;
     int totalStockQuantity = 0;
-    for (final s in stockRows) {
-      final qty = s['quantity'] as int? ?? 0;
-      final cost = s['cost_price_cents'] as int? ?? 0;
-      final retail = s['unit_price_cents'] as int? ?? 0;
-      totalStockCostCents += (qty * cost);
-      totalStockRetailCents += (qty * retail);
-      totalStockQuantity += qty;
-    }
-
-    // 6. Customers (Receivables - الديون التي لنا)
-    final custQuery = '''
-      SELECT id, code, name, phone, tax_number, credit_limit, current_balance
-      FROM customers
-      WHERE company_id = ? AND current_balance > 0
-      ORDER BY current_balance DESC
-    ''';
-    final custRows = db.select(custQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+    List<Map<String, dynamic>> custRows = [];
     int totalReceivablesCents = 0;
-    for (final c in custRows) {
-      totalReceivablesCents += (c['current_balance'] as int? ?? 0);
-    }
-
-    // 7. Suppliers (Payables - الديون التي علينا)
-    final suppQuery = '''
-      SELECT id, code, name, phone, tax_number, current_balance
-      FROM suppliers
-      WHERE company_id = ? AND current_balance > 0
-      ORDER BY current_balance DESC
-    ''';
-    final suppRows = db.select(suppQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+    List<Map<String, dynamic>> suppRows = [];
     int totalPayablesCents = 0;
-    for (final s in suppRows) {
-      totalPayablesCents += (s['current_balance'] as int? ?? 0);
+
+    try {
+      // 1. Sales & Inflow
+      final salesQuery = isAllYears
+          ? "SELECT COALESCE(SUM(grand_total), 0) as total, COALESCE(SUM(paid_total), 0) as paid, COUNT(*) as cnt FROM sales_invoices WHERE company_id = ? AND status != 'VOID'"
+          : "SELECT COALESCE(SUM(grand_total), 0) as total, COALESCE(SUM(paid_total), 0) as paid, COUNT(*) as cnt FROM sales_invoices WHERE company_id = ? AND status != 'VOID' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
+      final salesResult = db.select(salesQuery, [companyId]);
+      if (salesResult.isNotEmpty) {
+        totalSalesCents = salesResult.first['total'] as int? ?? 0;
+        salesCount = salesResult.first['cnt'] as int? ?? 0;
+      }
+
+      // 2. Purchases
+      final poQuery = isAllYears
+          ? "SELECT COALESCE(SUM(grand_total), 0) as total, COUNT(*) as cnt FROM purchase_orders WHERE company_id = ? AND status != 'CANCELLED'"
+          : "SELECT COALESCE(SUM(grand_total), 0) as total, COUNT(*) as cnt FROM purchase_orders WHERE company_id = ? AND status != 'CANCELLED' AND strftime('%Y', created_at) = '$_selectedAuditYear'";
+      final poResult = db.select(poQuery, [companyId]);
+      if (poResult.isNotEmpty) {
+        totalPurchasesCents = poResult.first['total'] as int? ?? 0;
+        purchasesCount = poResult.first['cnt'] as int? ?? 0;
+      }
+
+      // 3. Operating Expenses
+      final expQuery = isAllYears
+          ? "SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt FROM expense_vouchers WHERE company_id = ? AND (status IS NULL OR status != 'CANCELLED')"
+          : "SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt FROM expense_vouchers WHERE company_id = ? AND (status IS NULL OR status != 'CANCELLED') AND strftime('%Y', created_at) = '$_selectedAuditYear'";
+      final expResult = db.select(expQuery, [companyId]);
+      if (expResult.isNotEmpty) {
+        totalExpensesCents = expResult.first['total'] as int? ?? 0;
+        expensesCount = expResult.first['cnt'] as int? ?? 0;
+      }
+
+      // 4. Payroll Runs
+      final prQuery = isAllYears
+          ? "SELECT COALESCE(SUM(total_net), 0) as total, COUNT(*) as cnt FROM payroll_runs WHERE company_id = ? AND status != 'CANCELLED'"
+          : "SELECT COALESCE(SUM(total_net), 0) as total, COUNT(*) as cnt FROM payroll_runs WHERE company_id = ? AND status != 'CANCELLED' AND period_month LIKE '$_selectedAuditYear-%'";
+      final prResult = db.select(prQuery, [companyId]);
+      if (prResult.isNotEmpty) {
+        totalPayrollCents = prResult.first['total'] as int? ?? 0;
+        payrollCount = prResult.first['cnt'] as int? ?? 0;
+      }
+
+      // 5. Stock Valuation
+      final stockQuery = '''
+        SELECT 
+          p.id, p.barcode, p.sku, p.name_ar,
+          COALESCE(SUM(ib.quantity), 0) as quantity,
+          COALESCE(AVG(ib.average_cost), p.cost_price, 0) as cost_price_cents,
+          p.sale_price as unit_price_cents
+        FROM products p
+        LEFT JOIN inventory_balances ib ON ib.product_id = p.id
+        WHERE p.company_id = ? AND p.is_active = 1
+        GROUP BY p.id
+        ORDER BY p.name_ar ASC
+      ''';
+      stockRows = db.select(stockQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+      for (final s in stockRows) {
+        final qty = s['quantity'] as int? ?? 0;
+        final cost = (s['cost_price_cents'] as num?)?.toInt() ?? 0;
+        final retail = (s['unit_price_cents'] as num?)?.toInt() ?? 0;
+        totalStockCostCents += (qty * cost);
+        totalStockRetailCents += (qty * retail);
+        totalStockQuantity += qty;
+      }
+
+      // 6. Customers (Receivables - الديون التي لنا)
+      final custQuery = '''
+        SELECT id, code, name, phone, tax_number, credit_limit, current_balance
+        FROM customers
+        WHERE company_id = ? AND current_balance > 0
+        ORDER BY current_balance DESC
+      ''';
+      custRows = db.select(custQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+      for (final c in custRows) {
+        totalReceivablesCents += (c['current_balance'] as int? ?? 0);
+      }
+
+      // 7. Suppliers (Payables - الديون التي علينا)
+      final suppQuery = '''
+        SELECT id, code, name, phone, tax_number, current_balance
+        FROM suppliers
+        WHERE company_id = ? AND current_balance > 0
+        ORDER BY current_balance DESC
+      ''';
+      suppRows = db.select(suppQuery, [companyId]).map((r) => Map<String, dynamic>.from(r)).toList();
+      for (final s in suppRows) {
+        totalPayablesCents += (s['current_balance'] as int? ?? 0);
+      }
+    } catch (e) {
+      debugPrint('Error calculating annual audit report: $e');
     }
 
     // Profit calculation:

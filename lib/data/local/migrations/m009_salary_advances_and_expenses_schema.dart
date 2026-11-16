@@ -43,6 +43,7 @@ class M009SalaryAdvancesAndExpensesSchema extends Migration {
         voucher_date TEXT NOT NULL,
         journal_entry_id TEXT REFERENCES journal_entries(id) ON DELETE SET NULL,
         cost_center_id TEXT REFERENCES cost_centers(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'POSTED',
         created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );

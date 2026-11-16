@@ -7,6 +7,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/partner_repository.dart';
 import '../../domain/entities/partner.dart';
+import '../../core/printing/printer_service.dart';
 
 class PartnersScreen extends ConsumerStatefulWidget {
   const PartnersScreen({super.key});
@@ -146,7 +147,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                         child: TextFormField(
                           controller: creditLimitController,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          decoration: const InputDecoration(labelText: 'سقف الائتمان الآجل (SAR)'),
+                          decoration: InputDecoration(labelText: 'سقف الائتمان الآجل (${PrinterService.defaultCurrency})'),
                         ),
                       ),
                     ],
@@ -247,7 +248,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                   TextFormField(
                     controller: creditLimitController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'الحد الائتماني الآجل (SAR) *'),
+                    decoration: InputDecoration(labelText: 'الحد الائتماني الآجل (${PrinterService.defaultCurrency}) *'),
                   ),
                 ],
               ),
@@ -301,7 +302,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
             Text('تأكيد حذف / تعطيل العميل', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
-        content: Text('هل أنت متأكد من حذف العميل "${customer.name}"؟ الرصيد الحالي: ${customer.currentBalance.toStringAsFixed(2)} SAR.'),
+        content: Text('هل أنت متأكد من حذف العميل "${customer.name}"؟ الرصيد الحالي: ${customer.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -369,7 +370,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                           children: [
                             const Text('إجمالي المديونية الحالية على العميل:', style: TextStyle(fontWeight: FontWeight.w600)),
                             Text(
-                              '${customer.currentBalance.toStringAsFixed(2)} SAR',
+                              '${customer.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.dangerText),
                             ),
                           ],
@@ -382,7 +383,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                             child: TextFormField(
                               controller: amountController,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              decoration: const InputDecoration(labelText: 'المبلغ المقبوض (SAR) *', prefixIcon: Icon(Icons.attach_money_rounded)),
+                              decoration: InputDecoration(labelText: 'المبلغ المقبوض (${PrinterService.defaultCurrency}) *', prefixIcon: const Icon(Icons.attach_money_rounded)),
                               validator: (v) => v == null || double.tryParse(v) == null || double.parse(v) <= 0 ? 'أدخل مبلغاً صالحاً' : null,
                             ),
                           ),
@@ -452,7 +453,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('تم تسجيل سند القبض بمبلغ ${amountDouble.toStringAsFixed(2)} SAR وتخفيض رصيد العميل بنجاح!'),
+                        content: Text('تم تسجيل سند القبض بمبلغ ${amountDouble.toStringAsFixed(2)} ${PrinterService.defaultCurrency} وتخفيض رصيد العميل بنجاح!'),
                         backgroundColor: AppColors.success,
                       ),
                     );
@@ -491,7 +492,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  'الرصيد المتبقي عليه: ${customer.currentBalance.toStringAsFixed(2)} SAR',
+                  'الرصيد المتبقي عليه: ${customer.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: customer.currentBalance > 0 ? AppColors.dangerText : AppColors.successText,
@@ -523,15 +524,15 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                           DataCell(Text(st.docType, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
                           DataCell(Text(st.docNumber, style: const TextStyle(fontSize: 12))),
                           DataCell(Text(
-                            st.debit > 0 ? '${st.debit.toStringAsFixed(2)} SAR' : '—',
+                            st.debit > 0 ? '${st.debit.toStringAsFixed(2)} ${PrinterService.defaultCurrency}' : '—',
                             style: const TextStyle(color: AppColors.dangerText, fontWeight: FontWeight.bold, fontSize: 12),
                           )),
                           DataCell(Text(
-                            st.credit > 0 ? '${st.credit.toStringAsFixed(2)} SAR' : '—',
+                            st.credit > 0 ? '${st.credit.toStringAsFixed(2)} ${PrinterService.defaultCurrency}' : '—',
                             style: const TextStyle(color: AppColors.successText, fontWeight: FontWeight.bold, fontSize: 12),
                           )),
                           DataCell(Text(
-                            '${st.runningBalance.toStringAsFixed(2)} SAR',
+                            '${st.runningBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                           )),
                           DataCell(Text(st.notes, style: const TextStyle(fontSize: 11, color: AppColors.lightTextSecondary))),
@@ -551,7 +552,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                 summary.writeln('مرحباً بك عزيزنا العميل: ${customer.name}');
                 summary.writeln('كشف حسابك من منظومة ألفا سوفت:');
                 summary.writeln('-----------------------------------');
-                summary.writeln('الرصيد المتبقي المستحق: ${customer.currentBalance.toStringAsFixed(2)} SAR');
+                summary.writeln('الرصيد المتبقي المستحق: ${customer.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}');
                 summary.writeln('عدد العمليات المسجلة: ${statement.length}');
                 if (statement.isNotEmpty) {
                   summary.writeln('آخر عملية: ${statement.last.date} | ${statement.last.docType} | ${statement.last.docNumber}');
@@ -786,7 +787,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
             Text('تأكيد حذف / تعطيل المورد', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
-        content: Text('هل أنت متأكد من حذف المورد "${supplier.name}"؟ الرصيد المستحق له: ${supplier.currentBalance.toStringAsFixed(2)} SAR.'),
+        content: Text('هل أنت متأكد من حذف المورد "${supplier.name}"؟ الرصيد المستحق له: ${supplier.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -854,7 +855,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                           children: [
                             const Text('إجمالي الرصيد المستحق للمورد (له):', style: TextStyle(fontWeight: FontWeight.w600)),
                             Text(
-                              '${supplier.currentBalance.toStringAsFixed(2)} SAR',
+                              '${supplier.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.brandGoldDark),
                             ),
                           ],
@@ -867,7 +868,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                             child: TextFormField(
                               controller: amountController,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              decoration: const InputDecoration(labelText: 'المبلغ المدفوع (SAR) *', prefixIcon: Icon(Icons.attach_money_rounded)),
+                              decoration: InputDecoration(labelText: 'المبلغ المدفوع (${PrinterService.defaultCurrency}) *', prefixIcon: const Icon(Icons.attach_money_rounded)),
                               validator: (v) => v == null || double.tryParse(v) == null || double.parse(v) <= 0 ? 'أدخل مبلغاً صالحاً' : null,
                             ),
                           ),
@@ -936,7 +937,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('تم تسجيل سند الصرف للمورد بمبلغ ${amountDouble.toStringAsFixed(2)} SAR بنجاح!'),
+                        content: Text('تم تسجيل سند الصرف للمورد بمبلغ ${amountDouble.toStringAsFixed(2)} ${PrinterService.defaultCurrency} بنجاح!'),
                         backgroundColor: AppColors.success,
                       ),
                     );
@@ -975,7 +976,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  'المتبقي له: ${supplier.currentBalance.toStringAsFixed(2)} SAR',
+                  'المتبقي له: ${supplier.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                   style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandGoldDark),
                 ),
               ),
@@ -1004,15 +1005,15 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                           DataCell(Text(st.docType, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
                           DataCell(Text(st.docNumber, style: const TextStyle(fontSize: 12))),
                           DataCell(Text(
-                            st.debit > 0 ? '${st.debit.toStringAsFixed(2)} SAR' : '—',
+                            st.debit > 0 ? '${st.debit.toStringAsFixed(2)} ${PrinterService.defaultCurrency}' : '—',
                             style: const TextStyle(color: AppColors.successText, fontWeight: FontWeight.bold, fontSize: 12),
                           )),
                           DataCell(Text(
-                            st.credit > 0 ? '${st.credit.toStringAsFixed(2)} SAR' : '—',
+                            st.credit > 0 ? '${st.credit.toStringAsFixed(2)} ${PrinterService.defaultCurrency}' : '—',
                             style: const TextStyle(color: AppColors.brandGoldDark, fontWeight: FontWeight.bold, fontSize: 12),
                           )),
                           DataCell(Text(
-                            '${st.runningBalance.toStringAsFixed(2)} SAR',
+                            '${st.runningBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                           )),
                           DataCell(Text(st.notes, style: const TextStyle(fontSize: 11, color: AppColors.lightTextSecondary))),
@@ -1031,7 +1032,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                 summary.writeln('كشف حساب المورد: ${supplier.name}');
                 summary.writeln('منظومة ألفا سوفت:');
                 summary.writeln('-----------------------------------');
-                summary.writeln('الرصيد المستحق لكم: ${supplier.currentBalance.toStringAsFixed(2)} SAR');
+                summary.writeln('الرصيد المستحق لكم: ${supplier.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}');
                 summary.writeln('عدد العمليات المسجلة: ${statement.length}');
                 summary.writeln('-----------------------------------');
 
@@ -1176,9 +1177,9 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                                   DataCell(Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600))),
                                   DataCell(Text(c.phone ?? '—')),
                                   DataCell(Text(c.taxNumber ?? '—')),
-                                  DataCell(Text('${c.creditLimit.toStringAsFixed(2)} SAR')),
+                                  DataCell(Text('${c.creditLimit.toStringAsFixed(2)} ${PrinterService.defaultCurrency}')),
                                   DataCell(Text(
-                                    '${c.currentBalance.toStringAsFixed(2)} SAR',
+                                    '${c.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       color: c.currentBalance > 0 ? AppColors.dangerText : AppColors.successText,
@@ -1250,7 +1251,7 @@ class _PartnersScreenState extends ConsumerState<PartnersScreen> with SingleTick
                                   DataCell(Text(s.phone ?? '—')),
                                   DataCell(Text(s.taxNumber ?? '—')),
                                   DataCell(Text(
-                                    '${s.currentBalance.toStringAsFixed(2)} SAR',
+                                    '${s.currentBalance.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                                     style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandGoldDark),
                                   )),
                                   DataCell(Chip(

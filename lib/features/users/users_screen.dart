@@ -5,6 +5,7 @@ import '../../core/providers/app_state_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../domain/entities/user.dart';
+import '../../core/printing/printer_service.dart';
 
 class UsersScreen extends ConsumerStatefulWidget {
   const UsersScreen({super.key});
@@ -912,12 +913,12 @@ class _UsersScreenState extends ConsumerState<UsersScreen> with SingleTickerProv
                   ),
                   DataCell(
                     Text(
-                      '${currencyFormat.format(report.totalSales)} ر.س',
+                      '${currencyFormat.format(report.totalSales)} ${PrinterService.defaultCurrency}',
                       style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.successText),
                     ),
                   ),
-                  DataCell(Text('${currencyFormat.format(report.totalPaid)} ر.س')),
-                  DataCell(Text('${currencyFormat.format(report.avgInvoiceValue)} ر.س')),
+                  DataCell(Text('${currencyFormat.format(report.totalPaid)} ${PrinterService.defaultCurrency}')),
+                  DataCell(Text('${currencyFormat.format(report.avgInvoiceValue)} ${PrinterService.defaultCurrency}')),
                   DataCell(Text('${report.auditCount} عملية')),
                   DataCell(
                     OutlinedButton.icon(

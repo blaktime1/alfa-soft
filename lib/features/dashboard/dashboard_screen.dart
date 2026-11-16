@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/printing/printer_service.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   final VoidCallback onOpenPos;
@@ -123,7 +124,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 final cards = [
                   _MetricCard(
                     title: 'مبيعات اليوم',
-                    value: '${_todaySalesTotal.toStringAsFixed(2)} SAR',
+                    value: '${_todaySalesTotal.toStringAsFixed(2)} ${PrinterService.defaultCurrency}',
                     icon: Icons.payments_rounded,
                     color: AppColors.brandAccent,
                   ),

@@ -11,7 +11,9 @@ import 'pdf_invoice_generator.dart';
 class PrinterService {
   final DatabaseService _db;
 
-  const PrinterService(this._db);
+  PrinterService(this._db) {
+    getDefaultCurrency();
+  }
 
   // =================== Settings Persistence ===================
 
@@ -129,7 +131,7 @@ class PrinterService {
         }
       }
     } catch (_) {}
-    return _cachedDefaultCurrency;
+    return 'SAR';
   }
 
   void setDefaultCurrency(String cur) {

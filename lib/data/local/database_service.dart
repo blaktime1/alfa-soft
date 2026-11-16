@@ -9,6 +9,7 @@ import 'migrations/m006_system_settings_and_backup_schema.dart';
 import 'migrations/m007_packaging_and_warehouse_pricing_schema.dart';
 import 'migrations/m008_invoice_management_and_pos_preferences_schema.dart';
 import 'migrations/m009_salary_advances_and_expenses_schema.dart';
+import 'migrations/m010_schema_fixes.dart';
 
 class DatabaseService {
   final Database _db;
@@ -71,6 +72,7 @@ class DatabaseService {
       const M007PackagingAndWarehousePricingSchema(),
       const M008InvoiceManagementAndPosPreferencesSchema(),
       const M009SalaryAdvancesAndExpensesSchema(),
+      const M010SchemaFixes(),
     ]..sort((a, b) => a.version.compareTo(b.version));
 
     for (final migration in availableMigrations) {
@@ -84,6 +86,15 @@ class DatabaseService {
         });
       }
     }
+
+    // Runtime self-healing checks for tables and columns
+    try {
+      final cols = _db.select('PRAGMA table_info(expense_vouchers)');
+      final hasStatus = cols.any((c) => c['name'] == 'status');
+      if (!hasStatus) {
+        _db.execute("ALTER TABLE expense_vouchers ADD COLUMN status TEXT NOT NULL DEFAULT 'POSTED';");
+      }
+    } catch (_) {}
   }
 
   /// Executes an atomic database transaction. If an exception occurs, changes are rolled back.

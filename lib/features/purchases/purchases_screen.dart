@@ -79,21 +79,24 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
           _warehouses.addAll(orgRepo.getWarehouses(b.id));
         }
         if (_warehouses.isEmpty) {
-          final allWh = db.select('SELECT id, branch_id, code, name FROM warehouses WHERE is_active = 1');
-          if (allWh.isNotEmpty) {
-            _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
-          } else {
-            final defBranch = branches.isNotEmpty ? branches.first.id : 'br_default';
-            final createdWh = orgRepo.createWarehouse(
-              branchId: defBranch,
-              code: 'WH-01',
-              name: 'المستودع الرئيسي',
-            );
-            _warehouses = [createdWh];
-          }
+          try {
+            final allWh = db.select('SELECT id, branch_id, code, name, is_active FROM warehouses WHERE is_active = 1');
+            if (allWh.isNotEmpty) {
+              _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
+            } else {
+              final defBranch = branches.isNotEmpty ? branches.first.id : 'br_default';
+              final createdWh = orgRepo.createWarehouse(
+                branchId: defBranch,
+                code: 'WH-01',
+                name: 'المستودع الرئيسي',
+              );
+              _warehouses = [createdWh];
+            }
+          } catch (_) {}
         }
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error loading purchases data: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -199,20 +202,39 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                             children: [
                               Expanded(
                                 flex: 3,
-                                child: DropdownButtonFormField<String>(
-                                  value: item.productId,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) {
-                                      setDState(() {
-                                        item.productId = val;
-                                        final prod = _products.firstWhere((p) => p.id == val);
-                                        item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
-                                      });
-                                    }
-                                  },
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: item.productId,
+                                        isExpanded: true,
+                                        decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                        items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setDState(() {
+                                              item.productId = val;
+                                              final prod = _products.firstWhere((p) => p.id == val);
+                                              item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: const Icon(Icons.search, size: 20, color: AppColors.brandPrimary),
+                                      tooltip: 'بحث واختيار الصنف',
+                                      onPressed: () {
+                                        _showProductSearchModal(context, (selectedProd) {
+                                          setDState(() {
+                                            item.productId = selectedProd.id;
+                                            item.costCtrl.text = selectedProd.costPrice.toStringAsFixed(2);
+                                          });
+                                        });
+                                      },
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -427,20 +449,39 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                             children: [
                               Expanded(
                                 flex: 3,
-                                child: DropdownButtonFormField<String>(
-                                  value: item.productId,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) {
-                                      setDState(() {
-                                        item.productId = val;
-                                        final prod = _products.firstWhere((p) => p.id == val);
-                                        item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
-                                      });
-                                    }
-                                  },
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: item.productId,
+                                        isExpanded: true,
+                                        decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                        items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setDState(() {
+                                              item.productId = val;
+                                              final prod = _products.firstWhere((p) => p.id == val);
+                                              item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: const Icon(Icons.search, size: 20, color: AppColors.brandPrimary),
+                                      tooltip: 'بحث واختيار الصنف',
+                                      onPressed: () {
+                                        _showProductSearchModal(context, (selectedProd) {
+                                          setDState(() {
+                                            item.productId = selectedProd.id;
+                                            item.costCtrl.text = selectedProd.costPrice.toStringAsFixed(2);
+                                          });
+                                        });
+                                      },
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -741,20 +782,39 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                             children: [
                               Expanded(
                                 flex: 3,
-                                child: DropdownButtonFormField<String>(
-                                  value: item.productId,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                  items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) {
-                                      setDState(() {
-                                        item.productId = val;
-                                        final prod = _products.firstWhere((p) => p.id == val);
-                                        item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
-                                      });
-                                    }
-                                  },
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: item.productId,
+                                        isExpanded: true,
+                                        decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                        items: _products.map((p) => DropdownMenuItem(value: p.id, child: Text(p.nameAr, overflow: TextOverflow.ellipsis))).toList(),
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setDState(() {
+                                              item.productId = val;
+                                              final prod = _products.firstWhere((p) => p.id == val);
+                                              item.costCtrl.text = prod.costPrice.toStringAsFixed(2);
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: const Icon(Icons.search, size: 20, color: AppColors.brandPrimary),
+                                      tooltip: 'بحث واختيار الصنف',
+                                      onPressed: () {
+                                        _showProductSearchModal(context, (selectedProd) {
+                                          setDState(() {
+                                            item.productId = selectedProd.id;
+                                            item.costCtrl.text = selectedProd.costPrice.toStringAsFixed(2);
+                                          });
+                                        });
+                                      },
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -1443,6 +1503,16 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
   }
 
   void _showSupplierSearchModal(BuildContext context, ValueChanged<String> onSelected) {
+    if (_suppliers.isEmpty) {
+      try {
+        final db = ref.read(databaseServiceProvider);
+        final partnerRepo = PartnerRepository(db);
+        final compResult = db.select('SELECT id FROM companies LIMIT 1');
+        if (compResult.isNotEmpty) {
+          _suppliers = partnerRepo.getSuppliers(compResult.first['id'] as String);
+        }
+      } catch (_) {}
+    }
     String query = '';
     showDialog(
       context: context,
@@ -1529,6 +1599,96 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> with SingleTi
                                 ),
                                 onTap: () {
                                   onSelected(s.id);
+                                  Navigator.pop(ctx);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showProductSearchModal(BuildContext context, ValueChanged<ProductEntity> onSelected) {
+    if (_products.isEmpty) {
+      try {
+        final db = ref.read(databaseServiceProvider);
+        final catalogRepo = CatalogRepository(db);
+        final compResult = db.select('SELECT id FROM companies LIMIT 1');
+        if (compResult.isNotEmpty) {
+          _products = catalogRepo.getProducts(companyId: compResult.first['id'] as String);
+        }
+      } catch (_) {}
+    }
+    String query = '';
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) {
+          final q = query.trim().toLowerCase();
+          final filtered = _products.where((p) {
+            if (q.isEmpty) return true;
+            return p.nameAr.toLowerCase().contains(q) ||
+                (p.nameEn != null && p.nameEn!.toLowerCase().contains(q)) ||
+                p.sku.toLowerCase().contains(q) ||
+                (p.barcode != null && p.barcode!.toLowerCase().contains(q));
+          }).toList();
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            title: Row(
+              children: [
+                const Icon(Icons.inventory_2_rounded, color: AppColors.brandPrimary),
+                const SizedBox(width: 8),
+                const Text('البحث واختيار الصنف من المخزون', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Spacer(),
+                Text('${filtered.length} صنف متاح', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(width: 8),
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+              ],
+            ),
+            content: SizedBox(
+              width: 600,
+              height: 480,
+              child: Column(
+                children: [
+                  TextField(
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: 'ابحث باسم الصنف، الباركود، أو الكود...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                    ),
+                    onChanged: (val) => setDState(() => query = val),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(child: Text('لا توجد أصناف مطابقة لكلمة البحث', style: TextStyle(color: Colors.grey)))
+                        : ListView.separated(
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, idx) {
+                              final p = filtered[idx];
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: AppColors.brandPrimary.withValues(alpha: 0.1),
+                                  child: const Icon(Icons.category_rounded, color: AppColors.brandPrimary, size: 20),
+                                ),
+                                title: Text(p.nameAr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                subtitle: Text('SKU: ${p.sku}${p.barcode != null ? ' | باركود: ${p.barcode}' : ''} | التكلفة: ${p.costPrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                trailing: const Icon(Icons.add_shopping_cart_rounded, color: AppColors.brandPrimary, size: 20),
+                                onTap: () {
+                                  onSelected(p);
                                   Navigator.pop(ctx);
                                 },
                               );

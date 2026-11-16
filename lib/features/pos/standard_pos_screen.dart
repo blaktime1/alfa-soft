@@ -176,68 +176,92 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
 
         _branches = orgRepo.getBranches(companyId);
         if (_branches.isNotEmpty) {
-          _selectedBranchId = _branches.first.id;
+          final mainBranch = _branches.firstWhere((b) => b.isMain, orElse: () => _branches.first);
+          _selectedBranchId = mainBranch.id;
           _warehouses = orgRepo.getWarehouses(_selectedBranchId!);
         }
 
         // Guarantee at least one valid warehouse exists to prevent NOT NULL constraint crashes
         if (_warehouses.isEmpty) {
-          final allWh = db.select('SELECT id, branch_id, code, name FROM warehouses WHERE is_active = 1');
-          if (allWh.isNotEmpty) {
-            _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
-          } else {
-            final defaultBranchId = _selectedBranchId ?? (_branches.isNotEmpty ? _branches.first.id : 'br_default');
-            final createdWh = orgRepo.createWarehouse(
-              branchId: defaultBranchId,
-              code: 'WH-01',
-              name: 'المستودع الرئيسي',
-            );
-            _warehouses = [createdWh];
+          try {
+            final allWh = db.select('SELECT id, branch_id, code, name, is_active FROM warehouses WHERE is_active = 1');
+            if (allWh.isNotEmpty) {
+              _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
+            } else {
+              final defaultBranchId = _selectedBranchId ?? (_branches.isNotEmpty ? _branches.first.id : 'br_default');
+              final createdWh = orgRepo.createWarehouse(
+                branchId: defaultBranchId,
+                code: 'WH-01',
+                name: 'المستودع الرئيسي',
+              );
+              _warehouses = [createdWh];
+            }
+          } catch (e) {
+            debugPrint('Error getting warehouses fallback: $e');
           }
         }
-        _selectedWarehouseId = _warehouses.first.id;
+        if (_warehouses.isNotEmpty) {
+          _selectedWarehouseId = _warehouses.first.id;
+        }
 
-        _customers = partnerRepo.getCustomers(companyId);
-        if (_customers.isEmpty) {
-          partnerRepo.createCustomer(
-            companyId: companyId,
-            code: 'WALK_IN',
-            name: 'عميل نقدي عابر',
-          );
+        try {
           _customers = partnerRepo.getCustomers(companyId);
+          if (_customers.isEmpty) {
+            partnerRepo.createCustomer(
+              companyId: companyId,
+              code: 'WALK_IN',
+              name: 'عميل نقدي عابر',
+            );
+            _customers = partnerRepo.getCustomers(companyId);
+          }
+          if (_customers.isNotEmpty) {
+            _selectedCustomerId = _customers.first.id;
+          }
+        } catch (e) {
+          debugPrint('Error initializing customers in POS: $e');
         }
-        _selectedCustomerId = _customers.first.id;
 
-        _products = catalogRepo.getProducts(companyId: companyId);
-        _categories = catalogRepo.getCategories(companyId);
-        _availableUnits = catalogRepo.getUnits(companyId);
-
-        final usersResult = db.select(
-          "SELECT id, full_name, username FROM users WHERE company_id = ? AND is_active = 1",
-          [companyId],
-        );
-        _salesmen = usersResult.map((u) => Map<String, dynamic>.from(u)).toList();
-        if (_salesmen.isNotEmpty) {
-          _selectedSalesmanId = _salesmen.first['id'] as String;
+        try {
+          _products = catalogRepo.getProducts(companyId: companyId);
+          _categories = catalogRepo.getCategories(companyId);
+          _availableUnits = catalogRepo.getUnits(companyId);
+        } catch (e) {
+          debugPrint('Error initializing products in POS: $e');
         }
 
-        final ps = PrinterService(db);
-        _currencyCode = ps.getDefaultCurrency();
-        _exchangeRate = ps.getExchangeRate(_currencyCode);
-        _isTaxEnabled = ps.isTaxEnabled();
-        _taxRatePercent = _isTaxEnabled ? ps.getTaxRatePercent() : 0.0;
-        _priceLevel = ps.getDefaultPricingTier(); // Defaults to WHOLESALE (سعر جملة)
+        try {
+          final usersResult = db.select(
+            "SELECT id, full_name, username FROM users WHERE company_id = ? AND is_active = 1",
+            [companyId],
+          );
+          _salesmen = usersResult.map((u) => Map<String, dynamic>.from(u)).toList();
+          if (_salesmen.isNotEmpty) {
+            _selectedSalesmanId = _salesmen.first['id'] as String;
+          }
+        } catch (_) {}
+
+        try {
+          final ps = PrinterService(db);
+          _currencyCode = ps.getDefaultCurrency();
+          _exchangeRate = ps.getExchangeRate(_currencyCode);
+          _isTaxEnabled = ps.isTaxEnabled();
+          _taxRatePercent = _isTaxEnabled ? ps.getTaxRatePercent() : 0.0;
+          _priceLevel = ps.getDefaultPricingTier(); // Defaults to WHOLESALE (سعر جملة)
+        } catch (_) {}
 
         // Load invoice IDs for navigation
-        final invRows = db.select(
-          "SELECT id FROM sales_invoices WHERE company_id = ? ORDER BY invoice_date ASC, created_at ASC",
-          [companyId],
-        );
-        _allInvoiceIds = invRows.map((r) => r['id'] as String).toList();
+        try {
+          final invRows = db.select(
+            "SELECT id FROM sales_invoices WHERE company_id = ? ORDER BY invoice_date ASC, created_at ASC",
+            [companyId],
+          );
+          _allInvoiceIds = invRows.map((r) => r['id'] as String).toList();
+        } catch (_) {}
       }
 
       _resetToNewInvoice();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error in _initializeData of StandardPosScreen: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -315,6 +339,16 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
   }
 
   void _showCustomerSearchDialog() {
+    if (_customers.isEmpty) {
+      try {
+        final db = ref.read(databaseServiceProvider);
+        final partnerRepo = PartnerRepository(db);
+        final compResult = db.select('SELECT id FROM companies LIMIT 1');
+        if (compResult.isNotEmpty) {
+          _customers = partnerRepo.getCustomers(compResult.first['id'] as String);
+        }
+      } catch (_) {}
+    }
     String search = '';
     showDialog(
       context: context,
@@ -1235,6 +1269,16 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
   }
 
   void _showProductSearchDialog(int rowIndex) {
+    if (_products.isEmpty) {
+      try {
+        final db = ref.read(databaseServiceProvider);
+        final catalogRepo = CatalogRepository(db);
+        final compResult = db.select('SELECT id FROM companies LIMIT 1');
+        if (compResult.isNotEmpty) {
+          _products = catalogRepo.getProducts(companyId: compResult.first['id'] as String);
+        }
+      } catch (_) {}
+    }
     showDialog(
       context: context,
       builder: (ctx) {
@@ -1611,19 +1655,23 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
                       final orgRepo = OrganizationRepository(ref.read(databaseServiceProvider));
                       _warehouses = orgRepo.getWarehouses(val);
                       if (_warehouses.isEmpty) {
-                        final allWh = ref.read(databaseServiceProvider).select('SELECT id, branch_id, code, name FROM warehouses WHERE is_active = 1');
-                        if (allWh.isNotEmpty) {
-                          _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
-                        } else {
-                          final createdWh = orgRepo.createWarehouse(
-                            branchId: val,
-                            code: 'WH-01',
-                            name: 'المستودع الرئيسي',
-                          );
-                          _warehouses = [createdWh];
-                        }
+                        try {
+                          final allWh = ref.read(databaseServiceProvider).select('SELECT id, branch_id, code, name, is_active FROM warehouses WHERE is_active = 1');
+                          if (allWh.isNotEmpty) {
+                            _warehouses = allWh.map((r) => WarehouseEntity.fromMap(Map<String, dynamic>.from(r))).toList();
+                          } else {
+                            final createdWh = orgRepo.createWarehouse(
+                              branchId: val,
+                              code: 'WH-01',
+                              name: 'المستودع الرئيسي',
+                            );
+                            _warehouses = [createdWh];
+                          }
+                        } catch (_) {}
                       }
-                      _selectedWarehouseId = _warehouses.first.id;
+                      if (_warehouses.isNotEmpty) {
+                        _selectedWarehouseId = _warehouses.first.id;
+                      }
                     });
                   }
                 },

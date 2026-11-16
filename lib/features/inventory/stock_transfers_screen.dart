@@ -9,6 +9,7 @@ import '../../domain/entities/inventory_operation.dart';
 import '../../domain/entities/organization.dart';
 import '../../domain/entities/catalog.dart';
 import '../../core/math/bankers_rounding.dart';
+import '../../core/printing/printer_service.dart';
 
 class StockTransfersScreen extends ConsumerStatefulWidget {
   const StockTransfersScreen({super.key});
@@ -237,10 +238,10 @@ class _StockTransfersScreenState extends ConsumerState<StockTransfersScreen> wit
                       TextFormField(
                         controller: destPriceController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
-                          labelText: 'سعر بيع التجزئة في مستودع الوجهة (SAR)',
-                          prefixIcon: Icon(Icons.price_change_rounded, color: AppColors.brandGoldDark),
-                          suffixText: 'SAR',
+                        decoration: InputDecoration(
+                          labelText: 'سعر بيع التجزئة في مستودع الوجهة (${PrinterService.defaultCurrency})',
+                          prefixIcon: const Icon(Icons.price_change_rounded, color: AppColors.brandGoldDark),
+                          suffixText: PrinterService.defaultCurrency,
                         ),
                       ),
                     ],

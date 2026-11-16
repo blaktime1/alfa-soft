@@ -66,9 +66,9 @@ void main() {
         'expense_vouchers',
       ]));
 
-      // Verify migration table recorded all 9 migrations
+      // Verify migration table recorded all 10 migrations
       final migrations = dbService.select('SELECT version FROM schema_migrations ORDER BY version ASC');
-      expect(migrations.length, equals(9));
+      expect(migrations.length, equals(10));
     });
 
     test('Foreign key constraints are strictly enforced', () {

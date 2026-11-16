@@ -1015,7 +1015,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'السعر الأساسي المعتمد في المنظومة: ${product.salePrice.toStringAsFixed(2)} SAR. يمكنك تحديد سعر مختلف لكل مستودع (مثلاً بيع في مخزن 2 بسعر أعلى).',
+                          'السعر الأساسي المعتمد في المنظومة: ${product.salePrice.toStringAsFixed(2)} ${PrinterService.defaultCurrency}. يمكنك تحديد سعر مختلف لكل مستودع (مثلاً بيع في مخزن 2 بسعر أعلى).',
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                       ),

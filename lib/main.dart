@@ -13,6 +13,7 @@ import 'data/local/database_service.dart';
 import 'features/auth/login_screen.dart';
 import 'features/setup/first_run_wizard.dart';
 import 'features/shell/main_shell.dart';
+import 'core/printing/printer_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +54,11 @@ void main() async {
     // Fallback to in-memory if disk access restricted or in test harness
     dbService = DatabaseService.inMemory();
   }
+
+  // Pre-load default system currency into PrinterService static cache
+  try {
+    PrinterService(dbService).getDefaultCurrency();
+  } catch (_) {}
 
   runApp(
     ProviderScope(

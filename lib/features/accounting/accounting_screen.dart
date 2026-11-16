@@ -753,14 +753,23 @@ class _AccountingScreenState extends ConsumerState<AccountingScreen> with Single
               Navigator.pop(ctx);
               try {
                 final userId = _getUserId();
-                repo.reverseJournalEntry(
-                  entryId: v.journalEntryId!,
-                  userId: userId,
-                  reason: reason,
-                );
+                try {
+                  repo.reverseJournalEntry(
+                    entryId: v.journalEntryId!,
+                    userId: userId,
+                    reason: reason,
+                  );
+                } catch (revError) {
+                  // If journal entry was already marked REVERSED, gracefully update voucher status
+                  if (!revError.toString().contains('معكوس مسبقاً')) {
+                    rethrow;
+                  }
+                }
                 final db = ref.read(databaseServiceProvider);
                 if (v.isExpense) {
-                  db.execute("UPDATE expense_vouchers SET status = 'CANCELLED' WHERE id = ?", [v.id]);
+                  try {
+                    db.execute("UPDATE expense_vouchers SET status = 'CANCELLED' WHERE id = ?", [v.id]);
+                  } catch (_) {}
                 }
                 setState(() {});
                 ScaffoldMessenger.of(context).showSnackBar(
