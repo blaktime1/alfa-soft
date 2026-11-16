@@ -310,14 +310,28 @@ class CatalogRepository {
   }
 
   void deleteProduct(String id, [String? deletedBy]) {
-    _db.execute('UPDATE products SET is_active = 0, updated_at = datetime("now") WHERE id = ?', [id]);
-
     try {
+      final salesCount = _db.select('SELECT COUNT(*) as cnt FROM sales_invoice_items WHERE product_id = ?', [id]).first['cnt'] as int;
+      final purchaseCount = _db.select('SELECT COUNT(*) as cnt FROM purchase_order_items WHERE product_id = ?', [id]).first['cnt'] as int;
+
+      if (salesCount == 0 && purchaseCount == 0) {
+        // Safe to permanently purge from database
+        _db.execute('DELETE FROM inventory_movements WHERE product_id = ?', [id]);
+        _db.execute('DELETE FROM inventory_balances WHERE product_id = ?', [id]);
+        _db.execute('DELETE FROM warehouse_product_prices WHERE product_id = ?', [id]);
+        _db.execute('DELETE FROM products WHERE id = ?', [id]);
+      } else {
+        // Soft delete to protect financial audit history
+        _db.execute('UPDATE products SET is_active = 0, updated_at = datetime("now") WHERE id = ?', [id]);
+      }
+
+      final compRows = _db.select('SELECT id FROM companies LIMIT 1');
+      final compId = compRows.isNotEmpty ? compRows.first['id'] as String : 'comp_1';
       const uuid = Uuid();
       _db.execute('''
         INSERT INTO audit_logs (id, company_id, user_id, device_id, action, entity_name, entity_id, new_state)
-        VALUES (?, 'SYSTEM', ?, 'LOCAL_DESKTOP', 'DELETE_PRODUCT', 'PRODUCT', ?, 'Product deactivated')
-      ''', ['aud_${uuid.v4()}', deletedBy ?? 'ADMIN', id]);
+        VALUES (?, ?, ?, 'LOCAL_DESKTOP', 'DELETE_PRODUCT', 'PRODUCT', ?, 'Product removed or deactivated')
+      ''', ['aud_${uuid.v4()}', compId, deletedBy ?? 'ADMIN', id]);
 
       _outbox.enqueue(
         entityType: 'PRODUCT',
@@ -325,7 +339,9 @@ class CatalogRepository {
         operation: SyncOperation.delete,
         payload: {'id': id, 'is_active': 0},
       );
-    } catch (_) {}
+    } catch (_) {
+      _db.execute('UPDATE products SET is_active = 0, updated_at = datetime("now") WHERE id = ?', [id]);
+    }
   }
 
   /// Sets or updates a warehouse-specific price override for a product

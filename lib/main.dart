@@ -16,6 +16,7 @@ import 'features/shell/main_shell.dart';
 import 'features/licensing/license_activation_screen.dart';
 import 'core/providers/license_provider.dart';
 import 'core/printing/printer_service.dart';
+import 'core/widgets/mac_os_title_bar.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,15 +26,17 @@ void main() async {
     try {
       await windowManager.ensureInitialized();
       const windowOptions = WindowOptions(
-        size: Size(1280, 800),
-        minimumSize: Size(1024, 700),
+        size: Size(1280, 720),
+        minimumSize: Size(800, 500),
         center: true,
         backgroundColor: Colors.transparent,
         skipTaskbar: false,
         title: 'ALFA SOFT — Enterprise Resource Planning',
+        titleBarStyle: TitleBarStyle.hidden,
       );
       windowManager.waitUntilReadyToShow(windowOptions, () async {
-        await windowManager.setPreventClose(true);
+        await windowManager.setResizable(true);
+        await windowManager.setMinimumSize(const Size(800, 500));
         await windowManager.show();
         await windowManager.focus();
       });
@@ -108,14 +111,38 @@ class _AppRootDecider extends ConsumerStatefulWidget {
   ConsumerState<_AppRootDecider> createState() => _AppRootDeciderState();
 }
 
-class _AppRootDeciderState extends ConsumerState<_AppRootDecider> {
+class _AppRootDeciderState extends ConsumerState<_AppRootDecider> with WindowListener {
   bool _hasCompany = false;
   bool _isChecking = true;
 
   @override
   void initState() {
     super.initState();
+    try {
+      windowManager.addListener(this);
+    } catch (_) {}
     _checkSetupState();
+  }
+
+  @override
+  void dispose() {
+    try {
+      windowManager.removeListener(this);
+    } catch (_) {}
+    super.dispose();
+  }
+
+  @override
+  void onWindowClose() async {
+    final currentUser = ref.read(currentUserProvider);
+    if (currentUser == null) {
+      try {
+        await windowManager.destroy();
+        exit(0);
+      } catch (_) {
+        exit(0);
+      }
+    }
   }
 
   void _checkSetupState() {
@@ -134,42 +161,50 @@ class _AppRootDeciderState extends ConsumerState<_AppRootDecider> {
 
   @override
   Widget build(BuildContext context) {
+    Widget content;
     if (_isChecking) {
-      return const Scaffold(
+      content = const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
+    } else {
+      final license = ref.watch(licenseInfoProvider);
+
+      // 1. Hardware Fingerprint & Cryptographic License Verification
+      if (!license.isValid) {
+        content = LicenseActivationScreen(
+          onActivated: () {
+            ref.read(licenseInfoProvider.notifier).refresh();
+            _checkSetupState();
+          },
+        );
+      } else if (!_hasCompany) {
+        // 2. Initial Setup Wizard (Runs once on first installation)
+        content = FirstRunWizard(
+          onCompleted: () {
+            setState(() {
+              _hasCompany = true;
+            });
+          },
+        );
+      } else {
+        // 3. User Authentication
+        final currentUser = ref.watch(currentUserProvider);
+        if (currentUser == null) {
+          content = const LoginScreen();
+        } else {
+          // 4. Main Application Shell
+          content = const MainShell();
+        }
+      }
     }
 
-    final license = ref.watch(licenseInfoProvider);
-
-    // 1. Hardware Fingerprint & Cryptographic License Verification
-    if (!license.isValid) {
-      return LicenseActivationScreen(
-        onActivated: () {
-          ref.read(licenseInfoProvider.notifier).refresh();
-          _checkSetupState();
-        },
-      );
-    }
-
-    // 2. Initial Setup Wizard (Runs once on first installation)
-    if (!_hasCompany) {
-      return FirstRunWizard(
-        onCompleted: () {
-          setState(() {
-            _hasCompany = true;
-          });
-        },
-      );
-    }
-
-    // 3. User Authentication
-    final currentUser = ref.watch(currentUserProvider);
-    if (currentUser == null) {
-      return const LoginScreen();
-    }
-
-    // 4. Main Application Shell
-    return const MainShell();
+    return Scaffold(
+      body: Column(
+        children: [
+          const MacOsTitleBar(),
+          Expanded(child: content),
+        ],
+      ),
+    );
   }
 }

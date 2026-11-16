@@ -20,6 +20,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _rememberMe = false;
   String? _errorMessage;
   String _companyName = 'ALFA SOFT';
   List<Map<String, String>> _branches = [];
@@ -59,6 +60,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
 
       final printerService = PrinterService(db);
+      if (printerService.isRememberMeEnabled()) {
+        final savedUser = printerService.getRememberedUsername();
+        final savedPass = printerService.getRememberedPassword();
+        if (savedUser.isNotEmpty) {
+          _usernameController.text = savedUser;
+          _rememberMe = true;
+        }
+        if (savedPass.isNotEmpty) {
+          _passwordController.text = savedPass;
+        }
+      }
       final savedPrinter = printerService.getSelectedPrinter();
       Printing.listPrinters().then((printers) {
         if (mounted) {
@@ -104,6 +116,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           _errorMessage = 'اسم المستخدم أو كلمة المرور غير صحيحة، يرجى المحاولة مجدداً.';
         });
       } else {
+        try {
+          final db = ref.read(databaseServiceProvider);
+          final ps = PrinterService(db);
+          if (_rememberMe) {
+            ps.saveRememberedCredentials(username: username, password: password);
+          } else {
+            ps.clearRememberedCredentials();
+          }
+        } catch (_) {}
         // Active user updated in Riverpod; _AppRootDecider will automatically transition to MainShell
       }
     }
@@ -356,7 +377,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             validator: (v) => v == null || v.isEmpty ? 'يرجى إدخال كلمة المرور' : null,
                             onFieldSubmitted: (_) => _handleLogin(),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 8),
+
+                          // Remember Me Checkbox
+                          InkWell(
+                            onTap: () => setState(() => _rememberMe = !_rememberMe),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: Checkbox(
+                                      value: _rememberMe,
+                                      onChanged: (val) => setState(() => _rememberMe = val ?? false),
+                                      activeColor: AppColors.brandPrimary,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'تذكر بيانات تسجيل الدخول على هذا الجهاز (تذكرني)',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.lightTextSecondary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
 
                           // Branch Selector Dropdown
                           if (_branches.isNotEmpty) ...[

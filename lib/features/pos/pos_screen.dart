@@ -89,7 +89,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSampleProductsIfEmpty();
     _loadWarehouses();
     _loadCatalog();
     _loadCurrencySettings();
@@ -143,35 +142,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     } catch (_) {}
   }
 
-  void _loadSampleProductsIfEmpty() {
-    final db = ref.read(databaseServiceProvider);
-    final count = db.select('SELECT COUNT(*) as cnt FROM products').first['cnt'] as int;
-
-    if (count == 0) {
-      final companyId = db.select('SELECT id FROM companies LIMIT 1').first['id'] as String;
-      db.execute('''
-        INSERT OR IGNORE INTO units (id, company_id, code, name)
-        VALUES ('unit_pcs', ?, 'PCS', 'حبة / قطعة')
-      ''', [companyId]);
-
-      final sampleItems = [
-        ['prod_1', '1001', 'مياه معدنية 500 مل', 150, 120, 80],
-        ['prod_2', '1002', 'حليب طازج 1 لتر', 600, 500, 450],
-        ['prod_3', '1003', 'أرز بسمتي 5 كجم', 4500, 4000, 3800],
-        ['prod_4', '1004', 'زيت نباتي نقي 1.5 لتر', 1800, 1600, 1450],
-        ['prod_5', '1005', 'سكر أبيض ناعم 2 كجم', 900, 800, 750],
-        ['prod_6', '1006', 'شاي أحمر فرط 400 جم', 1400, 1200, 1100],
-      ];
-
-      for (final item in sampleItems) {
-        db.execute('''
-          INSERT INTO products (id, company_id, base_unit_id, sku, barcode, name_ar, sale_price, min_sale_price, cost_price, is_active)
-          VALUES (?, ?, 'unit_pcs', ?, ?, ?, ?, ?, ?, 1)
-        ''', [item[0], companyId, item[1], item[1], item[2], item[3], item[4], item[5]]);
-      }
-    }
-  }
-
   void _loadCatalog() {
     final db = ref.read(databaseServiceProvider);
     if (_selectedWarehouseId.isEmpty && _warehouses.isNotEmpty) {
@@ -198,21 +168,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     setState(() {
       _quickProducts = result.map((r) => Map<String, dynamic>.from(r)).toList();
     });
-  }
-
-  int _getProductWarehouseStock(String productId) {
-    if (_selectedWarehouseId.isEmpty) return 0;
-    try {
-      final db = ref.read(databaseServiceProvider);
-      final row = db.select(
-        'SELECT quantity FROM inventory_balances WHERE warehouse_id = ? AND product_id = ? LIMIT 1',
-        [_selectedWarehouseId, productId],
-      );
-      if (row.isNotEmpty) {
-        return (row.first['quantity'] as num?)?.toInt() ?? 0;
-      }
-    } catch (_) {}
-    return 0;
   }
 
   void _handleBarcodeSubmit(String rawBarcode) {
@@ -249,44 +204,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 
   void _addItemToCart(Map<String, dynamic> product, {bool addAsCarton = false}) {
-    final productId = product['id'] as String;
-    final unitsPerCarton = product['units_per_carton'] as int? ?? 1;
-    final addingPieces = addAsCarton ? unitsPerCarton : 1;
-    final availableStock = _getProductWarehouseStock(productId);
-
-    if (availableStock <= 0) {
-      setState(() => _lastMessage = 'عفواً! الصنف "${product['name_ar']}" نفد من المخزن (الرصيد: 0). لا يمكن البيع.');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('عفواً! الصنف "${product['name_ar']}" غير متوفر في المخزن المحدد (الرصيد: 0). يرجى توريد بضاعة للمخزن أولاً.'),
-            backgroundColor: AppColors.error,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-      return;
-    }
-
-    final currentInCartPieces = _cart
-        .where((i) => i.productId == productId)
-        .fold(0, (sum, i) => sum + i.inventoryPieces);
-
-    if (currentInCartPieces + addingPieces > availableStock) {
-      setState(() => _lastMessage = 'عفواً! الكمية المطلوبة تتجاوز الرصيد المتوفر في المخزن ($availableStock قطعة).');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('عفواً! الكمية المطلوبة من "${product['name_ar']}" تتجاوز الرصيد المتوفر في المخزن ($availableStock قطعة).'),
-            backgroundColor: AppColors.warning,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-      return;
-    }
-
     setState(() {
+      final productId = product['id'] as String;
       final existingIndex = _cart.indexWhere((i) => i.productId == productId && i.isCarton == addAsCarton);
       if (existingIndex >= 0) {
         _cart[existingIndex].quantity += 1;
@@ -294,6 +213,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         final baseSale = product['wh_sale_price'] as int? ?? product['sale_price'] as int? ?? 0;
         final baseMin = product['wh_wholesale_price'] as int? ?? product['min_sale_price'] as int? ?? baseSale;
         final whCarton = product['wh_carton_price'] as int? ?? product['carton_price'] as int? ?? 0;
+        final unitsPerCarton = product['units_per_carton'] as int? ?? 1;
         final unitName = (product['unit_name'] as String?) ?? 'حبة';
 
         _cart.add(CartItem(
@@ -347,32 +267,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         ),
       );
       return;
-    }
-
-    // Strict stock check: Prevent selling when out of stock
-    for (final item in _cart) {
-      final availableStock = _getProductWarehouseStock(item.productId);
-      if (availableStock <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('لا يمكن إتمام البيع! الصنف "${item.name}" غير متوفر في المخزن (الرصيد: 0). يرجى توريد البضاعة للمخزن أولاً.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-        return;
-      }
-      final totalItemPieces = _cart
-          .where((i) => i.productId == item.productId)
-          .fold(0, (sum, i) => sum + i.inventoryPieces);
-      if (totalItemPieces > availableStock) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('لا يمكن إتمام البيع! الكمية المطلوبة من "${item.name}" ($totalItemPieces قطعة) تتجاوز الرصيد المتوفر في المخزن ($availableStock قطعة).'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-        return;
-      }
     }
 
     setState(() => _isProcessing = true);
@@ -481,13 +375,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             userId,
           ]);
 
-          // Ensure inventory_balances record exists
-          tx.execute('''
-            INSERT INTO inventory_balances (warehouse_id, product_id, quantity, updated_at)
-            VALUES (?, ?, 0, datetime('now'))
-            ON CONFLICT(warehouse_id, product_id) DO NOTHING
-          ''', [warehouseId, item.productId]);
-
           // Update Warehouse Real-time Stock Balance
           tx.execute('''
             UPDATE inventory_balances 
@@ -535,7 +422,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           branchId,
           userId,
           invoiceId,
-          'Invoice: $invoiceNumber, Total: ${_grandTotalCents / 100} $_currencyCode, Status: $paymentStatus, BalanceDue: ${balanceDueCents / 100} $_currencyCode',
+          'Invoice: $invoiceNumber, Total: ${_grandTotalCents / 100} SAR, Status: $paymentStatus, BalanceDue: ${balanceDueCents / 100} SAR',
         ]);
       });
 
@@ -683,8 +570,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           _lastMessage = 'تم اعتماد الفاتورة بنجاح: $invoiceNumber بمبلغ $formattedTotal ($paymentMethod)$printNotice';
         }
       });
-
-      _loadCatalog();
 
       if (mounted) {
         OperationSuccessDialog.show(
@@ -883,7 +768,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text('إجمالي الفاتورة المطلوب:', style: TextStyle(fontWeight: FontWeight.w600)),
-                              Text('${totalDouble.toStringAsFixed(2)} $_currencyCode',
+                              Text('${totalDouble.toStringAsFixed(2)} SAR',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.brandPrimary)),
                             ],
                           ),
@@ -892,7 +777,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text('المبلغ المتبقي آجل على الحساب:', style: TextStyle(fontWeight: FontWeight.w600)),
-                              Text('${remainingDue.toStringAsFixed(2)} $_currencyCode',
+                              Text('${remainingDue.toStringAsFixed(2)} SAR',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.dangerText)),
                             ],
                           ),
@@ -927,10 +812,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                     // Customer Balance Info Box
                     Row(
                       children: [
-                        Text('الرصيد السابق عليه: ${currentDebt.toStringAsFixed(2)} $_currencyCode',
+                        Text('الرصيد السابق عليه: ${currentDebt.toStringAsFixed(2)} SAR',
                             style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
                         const Spacer(),
-                        Text('سقف الائتمان: ${creditLimit.toStringAsFixed(2)} $_currencyCode',
+                        Text('سقف الائتمان: ${creditLimit.toStringAsFixed(2)} SAR',
                             style: const TextStyle(fontSize: 12, color: AppColors.lightTextSecondary)),
                       ],
                     ),
@@ -1246,8 +1131,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                       ),
                                       subtitle: Text(
                                         item.isCarton
-                                            ? 'SKU: ${item.sku} | سعر الكرتون: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} $_currencyCode (مسحوب: ${item.inventoryPieces} ${item.unitName})'
-                                            : 'SKU: ${item.sku} | سعر ${item.unitName}: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} $_currencyCode',
+                                            ? 'SKU: ${item.sku} | سعر الكرتون: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR (مسحوب: ${item.inventoryPieces} ${item.unitName})'
+                                            : 'SKU: ${item.sku} | سعر ${item.unitName}: ${(item.unitPriceCents / 100.0).toStringAsFixed(2)} SAR',
                                       ),
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -1268,21 +1153,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                           IconButton(
                                             icon: const Icon(Icons.add_circle_outline_rounded),
                                             onPressed: () {
-                                              final availableStock = _getProductWarehouseStock(item.productId);
-                                              final addingPieces = item.isCarton ? item.unitsPerCarton : 1;
-                                              final currentInCartPieces = _cart
-                                                  .where((i) => i.productId == item.productId)
-                                                  .fold(0, (sum, i) => sum + i.inventoryPieces);
-                                              if (currentInCartPieces + addingPieces > availableStock) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(
-                                                    content: Text('لا يمكن زيادة الكمية! الرصيد المتوفر في المخزن ($availableStock قطعة) فقط.'),
-                                                    backgroundColor: AppColors.warning,
-                                                    duration: const Duration(seconds: 2),
-                                                  ),
-                                                );
-                                                return;
-                                              }
                                               setState(() => item.quantity += 1);
                                             },
                                           ),
@@ -1290,7 +1160,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                           SizedBox(
                                             width: 95,
                                             child: Text(
-                                              '${(item.totalCents / 100.0).toStringAsFixed(2)} $_currencyCode',
+                                              '${(item.totalCents / 100.0).toStringAsFixed(2)} SAR',
                                               textAlign: TextAlign.end,
                                               style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandAccent),
                                             ),
@@ -1373,7 +1243,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                       Row(
                                         children: [
                                           Text(
-                                            '${(salePrice / 100.0).toStringAsFixed(2)} $_currencyCode',
+                                            '${(salePrice / 100.0).toStringAsFixed(2)} SAR',
                                             style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandAccent, fontSize: 12),
                                           ),
                                           const Spacer(),

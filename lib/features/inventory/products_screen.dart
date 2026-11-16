@@ -1104,7 +1104,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
             Text('تأكيد حذف / تعطيل الصنف', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
-        content: Text('هل أنت متأكد من حذف الصنف "${product.nameAr}" (SKU: ${product.sku})؟ سيتم تعطيله لمنع اختلال القيود التاريخية.'),
+        content: Text('هل أنت متأكد من حذف الصنف "${product.nameAr}" (SKU: ${product.sku})؟\nسيتم حذفه نهائياً من قاعدة البيانات، أو تعطيله في حال وجود حركات سابقة للحفاظ على سلامة الحسابات.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -1121,7 +1121,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
               Navigator.pop(ctx);
               _loadData();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('تم حذف وتعطيل الصنف بنجاح!'), backgroundColor: AppColors.danger),
+                const SnackBar(content: Text('تم حذف الصنف من النظام بنجاح!'), backgroundColor: AppColors.success),
               );
             },
             child: const Text('تأكيد الحذف'),

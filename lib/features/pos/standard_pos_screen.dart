@@ -1401,7 +1401,8 @@ class _StandardPosScreenState extends ConsumerState<StandardPosScreen>
           ElevatedButton(
             onPressed: () {
               final pwd = pwdCtrl.text.trim();
-              if (pwd == 'admin123' || pwd == '123456') {
+              final ps = PrinterService(ref.read(databaseServiceProvider));
+              if (ps.verifyAdminPassword(pwd)) {
                 Navigator.pop(ctx, true);
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(

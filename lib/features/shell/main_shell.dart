@@ -50,13 +50,19 @@ class _MainShellState extends ConsumerState<MainShell> with WindowListener {
   @override
   void initState() {
     super.initState();
-    windowManager.addListener(this);
+    try {
+      windowManager.addListener(this);
+      windowManager.setPreventClose(true);
+    } catch (_) {}
     _loadCompanyInfo();
   }
 
   @override
   void dispose() {
-    windowManager.removeListener(this);
+    try {
+      windowManager.setPreventClose(false);
+      windowManager.removeListener(this);
+    } catch (_) {}
     super.dispose();
   }
 

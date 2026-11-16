@@ -2251,6 +2251,56 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             ),
             const SizedBox(height: 28),
 
+            const Text('تفضيلات الدخول والأمان السريع:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.lightBgSubtle,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.lightBorderSubtle),
+              ),
+              child: StatefulBuilder(
+                builder: (context, setRememberState) {
+                  final db = ref.read(databaseServiceProvider);
+                  final ps = PrinterService(db);
+                  final isRem = ps.isRememberMeEnabled();
+                  return Row(
+                    children: [
+                      const Icon(Icons.lock_clock_rounded, color: AppColors.brandPrimary, size: 24),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('خاصية "تذكرني" لتسجيل الدخول التلقائي', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            SizedBox(height: 2),
+                            Text('تفعيل أو إلغاء حفظ بيانات تسجيل الدخول تلقائياً على هذا الجهاز للدخول السريع دون كتابة كلمة المرور كل مرة.', style: TextStyle(fontSize: 11, color: AppColors.lightTextSecondary)),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: isRem,
+                        activeThumbColor: AppColors.brandPrimary,
+                        onChanged: (val) {
+                          ps.setRememberMeEnabled(val);
+                          setRememberState(() {});
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(val ? 'تم تفعيل ميزة تذكرني بنجاح!' : 'تم إيقاف تذكرني ومسح بيانات الدخول المحفوظة.'),
+                              backgroundColor: val ? AppColors.success : AppColors.warning,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 28),
+
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(

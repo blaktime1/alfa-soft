@@ -358,7 +358,6 @@ class _FirstRunWizardState extends ConsumerState<FirstRunWizard> {
                               ),
                               validator: (v) {
                                 if (v == null || v.trim().isEmpty) return 'يرجى إدخال اسم المستخدم';
-                                if (v.trim().length < 3) return '3 أحرف على الأقل';
                                 return null;
                               },
                             ),
@@ -387,7 +386,6 @@ class _FirstRunWizardState extends ConsumerState<FirstRunWizard> {
                               ),
                               validator: (v) {
                                 if (v == null || v.isEmpty) return 'يرجى إدخال كلمة المرور';
-                                if (v.length < 6) return '6 خانات على الأقل';
                                 return null;
                               },
                             ),
