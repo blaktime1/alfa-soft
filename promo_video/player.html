@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALFA SOFT ERP — العرض الترويجي الرسمي</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+        }
+        body {
+            background: radial-gradient(circle at top, #0f172a 0%, #030712 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .logo-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(0, 229, 255, 0.1);
+            border: 1px solid rgba(0, 229, 255, 0.3);
+            padding: 8px 24px;
+            border-radius: 50px;
+            margin-bottom: 12px;
+            font-weight: bold;
+            color: #00e5ff;
+            letter-spacing: 1px;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ffffff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        p.subtitle {
+            color: #94a3b8;
+            font-size: 15px;
+        }
+        .video-container {
+            width: 100%;
+            max-width: 1080px;
+            background: #020617;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 25px 60px -15px rgba(0, 229, 255, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            max-width: 1080px;
+            width: 100%;
+            margin-top: 24px;
+        }
+        .card {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
+            border-radius: 14px;
+            padding: 16px 20px;
+        }
+        .card h3 {
+            font-size: 14px;
+            color: #00e5ff;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card p {
+            font-size: 13px;
+            color: #cbd5e1;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo-badge">
+            <span>⚡ ALFA SOFT ENTERPRISE</span>
+        </div>
+        <h1>الفيديو الإعلاني والترويجي الرسمي</h1>
+        <p class="subtitle">تعليق صوتي فخم بصوت حامد (Hamed Neural) • دقة 1080p Full HD • موشن جرافيكس متزامن</p>
+    </div>
+
+    <div class="video-container">
+        <video controls autoplay poster="../assets/images/app_logo.png">
+            <source src="alfa_soft_promo.mp4" type="video/mp4">
+            متصفحك لا يدعم تشغيل الفيديو.
+        </video>
+    </div>
+
+    <div class="details-grid">
+        <div class="card">
+            <h3>🎙️ التعليق الصوتي</h3>
+            <p>صوت خليجي/سعودي رسمي وفخم (Hamed) تم توليده عبر شبكات عصبية ومعالجته بهندسة صوتية واضحة.</p>
+        </div>
+        <div class="card">
+            <h3>🎬 المشاهد والموشن</h3>
+            <p>استعراض لشاشات الكاشير السريع (POS)، المخازن، التراخيص العتادية Ed25519، وتعدد العملات.</p>
+        </div>
+        <div class="card">
+            <h3>🎵 المؤثرات والموسيقى</h3>
+            <p>موسيقى خلفية هادئة (Ambient Pad Chords) متناغمة مع نبرة الإعلان بدون التشويش على الصوت.</p>
+        </div>
+        <div class="card">
+            <h3>📱 جاهزية النشر</h3>
+            <p>ترميز H.264 عالي التوافق بحجم خفيف وسريع مناسب للنشر في واتساب، تليجرام، ويوتيوب.</p>
+        </div>
+    </div>
+
+</body>
+</html>
