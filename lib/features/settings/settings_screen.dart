@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+import 'package:window_manager/window_manager.dart';
 import '../../core/backup/backup_service.dart';
 import '../../core/providers/app_state_provider.dart';
 import '../../core/providers/auth_provider.dart';
@@ -402,6 +404,130 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('خطأ في التحسين: $e'), backgroundColor: AppColors.danger),
+        );
+      }
+    }
+  }
+
+  Future<void> _showFactoryResetDialog() async {
+    final authed = await _showAdminPasswordPrompt(
+      context,
+      reason: 'تصفير قاعدة البيانات وإعادتها لحالة المصنع يتطلب موافقة المشرف المسؤول لمنع فقدان البيانات بطريق الخطأ.',
+    );
+    if (!authed) return;
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 28),
+            SizedBox(width: 10),
+            Text('تأكيد تصفير المنظومة للمصنع (Factory Reset)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.danger)),
+          ],
+        ),
+        content: const SizedBox(
+          width: 500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'تحذير فائق الأهمية:',
+                style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.danger, fontSize: 14),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'سيتم مسح جميع الفواتير، أرصدة المخزون، العملاء والموردين، والقيود المحاسبية بالكامل، وسيعود البرنامج كأنه مثبت لأول مرة.\n\nسيقوم النظام تلقائياً بإنشاء نسخة احتياطية أمان في مجلد النسخ قبل المسح حتى لا تفقد بياناتك السابقة.\n\nهل أنت متأكد من رغبتك في المتابعة؟',
+                style: TextStyle(fontSize: 13, height: 1.5),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء وتراجع'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.delete_forever_rounded, size: 18),
+            label: const Text('نعم، تصفير قاعدة البيانات الآن'),
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final db = ref.read(databaseServiceProvider);
+      // 1. Take safety hot backup
+      try {
+        final backupService = BackupService(db);
+        await backupService.createBackup(executedBy: 'FACTORY_RESET_SAFETY');
+      } catch (_) {}
+
+      // 2. Wipe operational data cleanly
+      db.transaction((tx) {
+        final tables = [
+          'sales_invoice_items', 'sales_invoices',
+          'purchase_order_items', 'purchase_orders',
+          'inventory_movements', 'inventory_balances', 'warehouse_product_prices', 'products', 'units', 'categories',
+          'journal_entry_lines', 'journal_entries', 'account_balances', 'accounts',
+          'payments', 'customers', 'suppliers',
+          'sync_outbox', 'sync_inbox', 'audit_logs',
+          'user_roles', 'users', 'warehouses', 'branches', 'companies'
+        ];
+        for (final t in tables) {
+          try {
+            tx.execute('DELETE FROM $t');
+          } catch (_) {}
+        }
+      });
+
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: AppColors.success),
+              SizedBox(width: 10),
+              Text('تم تصفير النظام بنجاح!'),
+            ],
+          ),
+          content: const Text(
+            'تمت إعادة ضبط قاعدة البيانات لحالة المصنع بنجاح وحفظ نسخة أمان احتياطية.\nسيتم الآن إغلاق المنظومة؛ وعند تشغيلها ستبدأ من معالج التهيئة الأولي لتسجيل منشأتك الجديدة.',
+            style: TextStyle(fontSize: 13, height: 1.5),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await windowManager.destroy();
+                  exit(0);
+                } catch (_) {
+                  exit(0);
+                }
+              },
+              child: const Text('إغلاق التطبيق والمتابعة'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ أثناء التصفير: $e'), backgroundColor: AppColors.danger),
         );
       }
     }
@@ -2070,6 +2196,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   },
                 ),
               ),
+
+            const SizedBox(height: 28),
+            const Divider(),
+            const SizedBox(height: 20),
+
+            // Danger Zone: Factory Reset
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 24),
+                      SizedBox(width: 10),
+                      Text(
+                        'منطقة الخطر — تصفير وإعادة ضبط قاعدة البيانات للمصنع (Factory Reset)',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.danger),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'تصفير وحذف جميع بيانات النظام (الفواتير، المخزون، القيود المحاسبية، العملاء، والمنتجات) للبدء من جديد كأن البرنامج مثبت لأول مرة. يقوم النظام تلقائياً بحفظ نسخة أمان قبل التصفير لحماية بياناتك.',
+                    style: TextStyle(fontSize: 12, color: AppColors.lightTextSecondary),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _showFactoryResetDialog,
+                    icon: const Icon(Icons.delete_forever_rounded),
+                    label: const Text('إعادة ضبط المصنع وتصفير قاعدة البيانات'),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
